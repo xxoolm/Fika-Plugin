@@ -1,4 +1,4 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using TMPro;
 using UnityEngine.UI;
@@ -9,36 +9,37 @@ using UnityEngine.UI;
 /// </summary>
 public class PlayerPlateUI : MonoBehaviour
 {
-    [SerializeField]
-    public GameObject ScreenSpaceNamePlate;
-    [SerializeField]
     public GameObject ScalarObjectScreen;
-    [SerializeField]
     public TextMeshProUGUI playerNameScreen;
-    [SerializeField]
     public Image healthBarBackgroundScreen;
-    [SerializeField]
     public Image healthBarScreen;
-    [SerializeField]
     public Image healthNumberBackgroundScreen;
-    [SerializeField]
     public TextMeshProUGUI healthNumberScreen;
-    [SerializeField]
+    public Image downedStateBackgroundScreen;
+    public TextMeshProUGUI downedStateScreen;
+    public TextMeshProUGUI downedStateTimerScreen;
     public Image usecPlateScreen;
-    [SerializeField]
     public Image bearPlateScreen;
-    [SerializeField]
     public GameObject EffectsBackground;
-    [SerializeField]
     public GameObject EffectImageTemplate;
+    public CanvasGroup AlphaGroup;
+
+    public GameObject Skeleton;
+    public GameObject Head;
+    public GameObject LeftArm;
+    public GameObject RightArm;
+    public GameObject LeftLeg;
+    public GameObject RightLeg;
+    public GameObject Chest;
+    public GameObject Stomach;
 
     public void SetNameText(string text)
     {
         playerNameScreen.SetText(text);
     }
 
-    public void SetHealthNumberText(string text)
+    public void SetHealthNumberText(int amount)
     {
-        healthNumberScreen.SetText(text);
+        healthNumberScreen.SetText("{0}%", amount);
     }
 }

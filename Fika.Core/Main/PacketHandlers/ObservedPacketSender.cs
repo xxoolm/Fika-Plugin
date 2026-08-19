@@ -1,16 +1,16 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using Comfort.Common;
 using Fika.Core.Networking;
 
 namespace Fika.Core.Main.PacketHandlers;
 
-public class ObservedPacketSender : MonoBehaviour, IPacketSender
+public sealed class ObservedPacketSender : MonoBehaviour, IPacketSender
 {
     public bool SendState { get; set; }
     public IFikaNetworkManager NetworkManager { get; set; }
 
-    protected void Awake()
+    private void Awake()
     {
         NetworkManager = Singleton<IFikaNetworkManager>.Instance;
     }

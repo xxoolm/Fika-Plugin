@@ -1,7 +1,7 @@
-﻿using Fika.Core.Main.ObservedClasses.HandsControllers;
+﻿using EFT.InventoryLogic;
+using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
-using System.Collections.Generic;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
 
@@ -12,15 +12,14 @@ public sealed class CylinderMagPacket : IPoolSubPacket
 
     }
 
-    public static CylinderMagPacket FromValue(EReloadWithAmmoStatus status, int camoraIndex, int ammoLoadedToMag, bool changed, bool hammerClosed, bool reload, string[] ammoIds)
+    public static CylinderMagPacket FromValue(EReloadWithAmmoStatus status, int camoraIndex, int ammoLoadedToMag, bool changed, bool hammerClosed, string[] ammoIds)
     {
-        CylinderMagPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<CylinderMagPacket>(EFirearmSubPacketType.CylinderMag);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<CylinderMagPacket>(EFirearmSubPacketType.CylinderMag);
         packet.Status = status;
         packet.CamoraIndex = camoraIndex;
         packet.AmmoLoadedToMag = ammoLoadedToMag;
         packet.Changed = changed;
         packet.HammerClosed = hammerClosed;
-        packet.Reload = reload;
         packet.AmmoIds = ammoIds;
         return packet;
     }
@@ -35,7 +34,6 @@ public sealed class CylinderMagPacket : IPoolSubPacket
     public int AmmoLoadedToMag;
     public bool Changed;
     public bool HammerClosed;
-    public bool Reload;
     public string[] AmmoIds;
 
     public void Execute(FikaPlayer player)
@@ -47,18 +45,15 @@ public sealed class CylinderMagPacket : IPoolSubPacket
                 controller.CurrentOperation.SetTriggerPressed(true);
             }
 
-            if (Reload)
+            if (Status == EReloadWithAmmoStatus.StartReload)
             {
-                if (Status == EReloadWithAmmoStatus.StartReload)
-                {
-                    List<AmmoItemClass> bullets = controller.FindAmmoByIds(AmmoIds);
-                    AmmoPackReloadingClass ammoPack = new(bullets);
-                    controller.FastForwardCurrentState();
-                    controller.CurrentOperation.ReloadCylinderMagazine(ammoPack, null, null);
-                }
+                var bullets = controller.FindAmmoByIds(AmmoIds);
+                AmmoPack ammoPack = new(bullets);
+                controller.FastForwardCurrentState();
+                controller.CurrentOperation.ReloadCylinderMagazine(ammoPack, null, null);
             }
 
-            if (Changed && controller.Weapon.GetCurrentMagazine() is CylinderMagazineItemClass cylinder)
+            if (Changed && controller.Weapon.GetCurrentMagazine() is CylinderMagazine cylinder)
             {
                 cylinder.SetCurrentCamoraIndex(CamoraIndex);
                 controller.Weapon.CylinderHammerClosed = HammerClosed;
@@ -74,13 +69,9 @@ public sealed class CylinderMagPacket : IPoolSubPacket
             writer.Put(CamoraIndex);
             writer.Put(HammerClosed);
         }
-        writer.Put(Reload);
-        if (Reload)
-        {
-            writer.PutEnum(Status);
-            writer.Put(AmmoLoadedToMag);
-            writer.PutArray(AmmoIds);
-        }
+        writer.PutEnum(Status);
+        writer.Put(AmmoLoadedToMag);
+        writer.PutArray(AmmoIds);
     }
 
     public void Deserialize(NetDataReader reader)
@@ -91,13 +82,9 @@ public sealed class CylinderMagPacket : IPoolSubPacket
             CamoraIndex = reader.GetInt();
             HammerClosed = reader.GetBool();
         }
-        Reload = reader.GetBool();
-        if (Reload)
-        {
-            Status = reader.GetEnum<EReloadWithAmmoStatus>();
-            AmmoLoadedToMag = reader.GetInt();
-            AmmoIds = reader.GetStringArray();
-        }
+        Status = reader.GetEnum<EReloadWithAmmoStatus>();
+        AmmoLoadedToMag = reader.GetInt();
+        AmmoIds = reader.GetStringArray();
     }
 
     public void Dispose()
@@ -107,7 +94,6 @@ public sealed class CylinderMagPacket : IPoolSubPacket
         AmmoLoadedToMag = 0;
         Changed = false;
         HammerClosed = false;
-        Reload = false;
         AmmoIds = null;
     }
 }

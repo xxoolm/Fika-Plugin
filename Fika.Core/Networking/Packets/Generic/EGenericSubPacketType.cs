@@ -26,11 +26,6 @@ public enum EGenericSubPacketType : byte
     ExfilCountdown,
 
     /// <summary>
-    /// Clear all active effects.
-    /// </summary>
-    ClearEffects,
-
-    /// <summary>
     /// Update backend data.
     /// </summary>
     UpdateBackendData,

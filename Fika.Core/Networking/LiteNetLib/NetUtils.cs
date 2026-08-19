@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using LiteNetLib;
 
 namespace Fika.Core.Networking.LiteNetLib;
 
@@ -23,35 +24,64 @@ public enum LocalAddrType
 /// </summary>
 public static class NetUtils
 {
-    private static readonly NetworkSorter NetworkSorter = new();
+    private static readonly NetworkSorter NetworkSorter = new NetworkSorter();
 
-    public static IPEndPoint MakeEndPoint(string hostStr, int port)
-    {
-        return new IPEndPoint(ResolveAddress(hostStr), port);
-    }
+    /// <summary>
+    /// Creates an <see cref="IPEndPoint"/> from a host string and a port.
+    /// </summary>
+    /// <param name="hostStr">The host name or IP address string to resolve.</param>
+    /// <param name="port">The port number for the endpoint.</param>
+    /// <returns>A new <see cref="IPEndPoint"/> instance.</returns>
+    public static IPEndPoint MakeEndPoint(string hostStr, int port) =>
+        new IPEndPoint(ResolveAddress(hostStr), port);
 
+    /// <summary>
+    /// Resolves a host string into an <see cref="IPAddress"/>.
+    /// </summary>
+    /// <remarks>
+    /// This method handles "localhost" specifically, attempts to parse the string as a direct IP, 
+    /// and falls back to DNS resolution. It prioritizes IPv6 if <see cref="LiteNetManager.IPv6Support"/> is enabled.
+    /// </remarks>
+    /// <param name="hostStr">The host name or IP address string (e.g., "127.0.0.1", "localhost", or "google.com").</param>
+    /// <returns>The resolved <see cref="IPAddress"/>.</returns>
+    /// <exception cref="ArgumentException">Thrown when the address cannot be resolved or is invalid.</exception>
     public static IPAddress ResolveAddress(string hostStr)
     {
         if (hostStr == "localhost")
+        {
             return IPAddress.Loopback;
+        }
 
         if (!IPAddress.TryParse(hostStr, out var ipAddress))
         {
-            if (NetManager.IPv6Support)
+            if (LiteNetManager.IPv6Support)
+            {
                 ipAddress = ResolveAddress(hostStr, AddressFamily.InterNetworkV6);
+            }
+
             if (ipAddress == null)
+            {
                 ipAddress = ResolveAddress(hostStr, AddressFamily.InterNetwork);
+            }
         }
         if (ipAddress == null)
+        {
             throw new ArgumentException("Invalid address: " + hostStr);
+        }
 
         return ipAddress;
     }
 
+    /// <summary>
+    /// Resolves a host string using DNS for a specific <see cref="AddressFamily"/>.
+    /// </summary>
+    /// <param name="hostStr">The host name to resolve via DNS.</param>
+    /// <param name="addressFamily">The preferred address family (e.g., <see cref="AddressFamily.InterNetwork"/> or <see cref="AddressFamily.InterNetworkV6"/>).</param>
+    /// <returns>The first <see cref="IPAddress"/> matching the family, or <see langword="null"/> if no match is found.</returns>
     public static IPAddress ResolveAddress(string hostStr, AddressFamily addressFamily)
     {
-        IPAddress[] addresses = Dns.GetHostEntry(hostStr).AddressList;
-        foreach (IPAddress ip in addresses)
+        var addresses = Dns.GetHostEntry(hostStr).AddressList;
+        foreach (var ip in addresses)
         {
             if (ip.AddressFamily == addressFamily)
             {
@@ -68,7 +98,7 @@ public static class NetUtils
     /// <returns>List with all local ip addresses</returns>
     public static List<string> GetLocalIpList(LocalAddrType addrType)
     {
-        List<string> targetList = [];
+        var targetList = new List<string>();
         GetLocalIpList(targetList, addrType);
         return targetList;
     }
@@ -80,8 +110,8 @@ public static class NetUtils
     /// <param name="addrType">type of address (IPv4, IPv6 or both)</param>
     public static void GetLocalIpList(IList<string> targetList, LocalAddrType addrType)
     {
-        bool ipv4 = (addrType & LocalAddrType.IPv4) == LocalAddrType.IPv4;
-        bool ipv6 = (addrType & LocalAddrType.IPv6) == LocalAddrType.IPv6;
+        var ipv4 = (addrType & LocalAddrType.IPv4) == LocalAddrType.IPv4;
+        var ipv6 = (addrType & LocalAddrType.IPv6) == LocalAddrType.IPv6;
         try
         {
             // Sort networks interfaces so it prefer Wifi over Cellular networks
@@ -89,37 +119,45 @@ public static class NetUtils
             var networks = NetworkInterface.GetAllNetworkInterfaces();
             Array.Sort(networks, NetworkSorter);
 
-            foreach (NetworkInterface ni in networks)
+            foreach (var ni in networks)
             {
                 //Skip loopback and disabled network interfaces
                 if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
                     ni.OperationalStatus != OperationalStatus.Up)
+                {
                     continue;
+                }
 
                 var ipProps = ni.GetIPProperties();
 
                 //Skip address without gateway
                 if (ipProps.GatewayAddresses.Count == 0)
+                {
                     continue;
+                }
 
-                foreach (UnicastIPAddressInformation ip in ipProps.UnicastAddresses)
+                foreach (var ip in ipProps.UnicastAddresses)
                 {
                     var address = ip.Address;
-                    if (ipv4 && address.AddressFamily == AddressFamily.InterNetwork ||
-                        ipv6 && address.AddressFamily == AddressFamily.InterNetworkV6)
+                    if ((ipv4 && address.AddressFamily == AddressFamily.InterNetwork) ||
+                        (ipv6 && address.AddressFamily == AddressFamily.InterNetworkV6))
+                    {
                         targetList.Add(address.ToString());
+                    }
                 }
             }
 
             //Fallback mode (unity android)
             if (targetList.Count == 0)
             {
-                IPAddress[] addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
-                foreach (IPAddress ip in addresses)
+                var addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
+                foreach (var ip in addresses)
                 {
-                    if (ipv4 && ip.AddressFamily == AddressFamily.InterNetwork ||
-                       ipv6 && ip.AddressFamily == AddressFamily.InterNetworkV6)
+                    if ((ipv4 && ip.AddressFamily == AddressFamily.InterNetwork) ||
+                       (ipv6 && ip.AddressFamily == AddressFamily.InterNetworkV6))
+                    {
                         targetList.Add(ip.ToString());
+                    }
                 }
             }
         }
@@ -131,13 +169,18 @@ public static class NetUtils
         if (targetList.Count == 0)
         {
             if (ipv4)
+            {
                 targetList.Add("127.0.0.1");
+            }
+
             if (ipv6)
+            {
                 targetList.Add("::1");
+            }
         }
     }
 
-    private static readonly List<string> IpList = [];
+    private static readonly List<string> IpList = new List<string>();
     /// <summary>
     /// Get first detected local ip address
     /// </summary>
@@ -158,12 +201,12 @@ public static class NetUtils
     // ===========================================
     internal static void PrintInterfaceInfos()
     {
-        NetDebug.WriteForce(NetLogLevel.Info, $"IPv6Support: {NetManager.IPv6Support}");
+        NetDebug.WriteForce(NetLogLevel.Info, $"IPv6Support: {LiteNetManager.IPv6Support}");
         try
         {
-            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
             {
-                foreach (UnicastIPAddressInformation ip in ni.GetIPProperties().UnicastAddresses)
+                foreach (var ip in ni.GetIPProperties().UnicastAddresses)
                 {
                     if (ip.Address.AddressFamily == AddressFamily.InterNetwork ||
                         ip.Address.AddressFamily == AddressFamily.InterNetworkV6)
@@ -181,10 +224,8 @@ public static class NetUtils
         }
     }
 
-    internal static int RelativeSequenceNumber(int number, int expected)
-    {
-        return (number - expected + NetConstants.MaxSequence + NetConstants.HalfMaxSequence) % NetConstants.MaxSequence - NetConstants.HalfMaxSequence;
-    }
+    internal static int RelativeSequenceNumber(int number, int expected) =>
+        (number - expected + NetConstants.MaxSequence + NetConstants.HalfMaxSequence) % NetConstants.MaxSequence - NetConstants.HalfMaxSequence;
 
     internal static T[] AllocatePinnedUninitializedArray<T>(int count) where T : unmanaged
     {

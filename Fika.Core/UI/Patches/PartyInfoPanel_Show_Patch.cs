@@ -1,7 +1,8 @@
-﻿using EFT.UI.Matchmaker;
+﻿using Diz.Binding;
+using System.Reflection;
+using EFT.UI.Matchmaker;
 using Fika.Core.Main.Utils;
 using SPT.Reflection.Patching;
-using System.Reflection;
 
 namespace Fika.Core.UI.Patches;
 
@@ -14,7 +15,7 @@ public class PartyInfoPanel_Show_Patch : ModulePatch
     }
 
     [PatchPrefix]
-    public static void Prefix(ref GClass1628<GroupPlayerViewModelClass> groupPlayers)
+    public static void Prefix(ref BindableList<RaidPlayer> groupPlayers)
     {
         if (groupPlayers != FikaBackendUtils.GroupPlayers && FikaBackendUtils.GroupPlayers.Count > 0)
         {

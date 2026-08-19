@@ -1,9 +1,9 @@
-﻿using Comfort.Common;
+﻿using System.Collections.Generic;
+using Comfort.Common;
 using EFT;
 using EFT.Interactive;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.World;
-using System.Collections.Generic;
 
 namespace Fika.Core.Main.ClientClasses;
 
@@ -12,8 +12,8 @@ namespace Fika.Core.Main.ClientClasses;
 /// </summary>
 public class FikaClientWorld : World
 {
-    public List<LootSyncStruct> LootSyncPackets;
-    public List<AirplaneDataPacketStruct> SyncObjectPackets;
+    public List<EFT.LootSyncPacket> LootSyncPackets;
+    public List<SynchronizableObjectPacket> SyncObjectPackets;
     public WorldPacket WorldPacket;
 
     private FikaClientGameWorld _clientGameWorld;
@@ -22,7 +22,7 @@ public class FikaClientWorld : World
 
     public static FikaClientWorld Create(FikaClientGameWorld gameWorld)
     {
-        FikaClientWorld clientWorld = gameWorld.gameObject.AddComponent<FikaClientWorld>();
+        var clientWorld = gameWorld.gameObject.AddComponent<FikaClientWorld>();
         clientWorld._clientGameWorld = gameWorld;
         clientWorld.LootSyncPackets = new(8);
         clientWorld.SyncObjectPackets = new(16);
@@ -44,6 +44,19 @@ public class FikaClientWorld : World
         _clientGameWorld.ClientSynchronizableObjectLogicProcessor.ProcessSyncObjectPackets(SyncObjectPackets);
     }
 
+    public void AddLootSyncStruct(EFT.LootSyncPacket syncStruct)
+    {
+        if (WorldPacket.LootSyncStructs.Count >= 8)
+        {
+            _client.SendReusable(WorldPacket,
+                _hasCriticalData ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
+
+            _hasCriticalData = false;
+        }
+
+        WorldPacket.LootSyncStructs.Add(syncStruct);
+    }
+
     /// <summary>
     /// Marks the current <see cref="WorldPacket"/> as critical
     /// </summary>
@@ -63,20 +76,17 @@ public class FikaClientWorld : World
         }
     }
 
-    public void UpdateLootItems(GClass818<int, LootItem> lootItems)
+    public void UpdateLootItems(DictionaryListHydra<int, LootItem> lootItems)
     {
         for (var i = LootSyncPackets.Count - 1; i >= 0; i--)
         {
             var lootSyncData = LootSyncPackets[i];
-            if (lootItems.TryGetByKey(lootSyncData.Id, out var lootItem))
+            if (lootItems.TryGetByKey(lootSyncData.Id, out var lootItem) && lootItem is ObservedLootItem observedLootItem)
             {
-                if (lootItem is ObservedLootItem observedLootItem)
-                {
-                    observedLootItem.ApplyNetPacket(lootSyncData);
-                }
-                LootSyncPackets.RemoveAt(i);
+                observedLootItem.ApplyNetPacket(lootSyncData);
             }
         }
+        LootSyncPackets.Clear();
     }
 
     /// <summary>

@@ -2,10 +2,10 @@
 
 namespace Fika.Core.Networking.Packets.Communication;
 
-public class EventControllerInteractPacket : INetSerializable
+public struct EventControllerInteractPacket : INetSerializable
 {
     public int NetId;
-    public InteractPacketStruct Data;
+    public InteractWithEventObjectPacket Data;
 
     public void Deserialize(NetDataReader reader)
     {
@@ -18,7 +18,7 @@ public class EventControllerInteractPacket : INetSerializable
         };
     }
 
-    public void Serialize(NetDataWriter writer)
+    public readonly void Serialize(NetDataWriter writer)
     {
         writer.Put(NetId);
         writer.Put(Data.hasInteraction);

@@ -9,7 +9,7 @@ namespace Fika.Core.Networking.Packets.Generic.SubPackets;
 
 public sealed class DisarmTripwire : IPoolSubPacket
 {
-    public AirplaneDataPacketStruct Data;
+    public SynchronizableObjectPacket Data;
 
     private DisarmTripwire() { }
 
@@ -18,9 +18,9 @@ public sealed class DisarmTripwire : IPoolSubPacket
         return new DisarmTripwire();
     }
 
-    public static DisarmTripwire FromValue(AirplaneDataPacketStruct data)
+    public static DisarmTripwire FromValue(SynchronizableObjectPacket data)
     {
-        DisarmTripwire packet = GenericSubPacketPoolManager.Instance.GetPacket<DisarmTripwire>(EGenericSubPacketType.DisarmTripwire);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<DisarmTripwire>(EGenericSubPacketType.DisarmTripwire);
         packet.Data = data;
         return packet;
     }
@@ -29,8 +29,8 @@ public sealed class DisarmTripwire : IPoolSubPacket
     {
         if (Data.ObjectType == SynchronizableObjectType.Tripwire)
         {
-            GameWorld gameWorld = Singleton<GameWorld>.Instance;
-            TripwireSynchronizableObject tripwire = gameWorld.SynchronizableObjectLogicProcessor.TripwireManager.GetTripwireById(Data.ObjectId);
+            var gameWorld = Singleton<GameWorld>.Instance;
+            var tripwire = gameWorld.SynchronizableObjectLogicProcessor.TripwireManager.GetTripwireById(Data.ObjectId);
             if (tripwire != null)
             {
                 gameWorld.DeActivateTripwire(tripwire);

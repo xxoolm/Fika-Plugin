@@ -1,18 +1,23 @@
-﻿using BepInEx.Logging;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
+using BepInEx.Logging;
+using Comfort.Common;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Http;
 using Fika.Core.Networking.Models;
-using System.Net;
-using System.Net.Sockets;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Networking;
 
 /// <summary>
 /// Client used to verify that a connection can be established before initializing the <see cref="FikaClient"/> and <see cref="CoopGame"/>
 /// </summary>
-public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchListener
+public class FikaPingingClient : INetEventListener, INatPunchListener, IDisposable
 {
     /// <summary>
     /// The network client manager instance.
@@ -34,16 +39,20 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
     /// </summary>
     public bool InProgress;
 
-    private ManualLogSource _logger;
-    private IPEndPoint _remoteEndPoint;
-    private IPEndPoint _localEndPoint;
+    private readonly ManualLogSource _logger;
+    private List<IPEndPoint> _endPoints;
+    private NetDataWriter _writer;
+    private List<IPEndPoint> _candidates;
+    private float _firstResponseTime;
+    private bool _hasResponse;
+    private readonly CancellationTokenSource _cts;
+    private bool _receivedNatPunchIntroduction;
+    private const float _responseWaitSeconds = 1f;
 
-    /// <summary>
-    /// Initializes the logger for the pinging client.
-    /// </summary>
-    public void Awake()
+    public FikaPingingClient()
     {
         _logger = Logger.CreateLogSource("Fika.PingingClient");
+        _cts = new();
     }
 
     /// <summary>
@@ -56,11 +65,16 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
         NetClient = new(this)
         {
             UnconnectedMessagesEnabled = true,
-            NatPunchEnabled = true
+            NatPunchEnabled = true,
+            UseNativeSockets = NativeSocket.IsSupported
         };
 
+        _endPoints = [];
+        _candidates = [];
+        _writer = new();
+
         GetHostRequest body = new(serverId);
-        GetHostResponse result = FikaRequestHandler.GetHost(body);
+        var result = FikaRequestHandler.GetHost(body);
         FikaBackendUtils.ServerGuid = result.ServerGuid;
         _logger.LogInfo(result.ToString());
 
@@ -73,67 +87,110 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
         {
             NetClient.NatPunchModule.Init(this);
 
-            string natPunchServerIP = FikaPlugin.Instance.NatPunchServerIP;
-            int natPunchServerPort = FikaPlugin.Instance.NatPunchServerPort;
-            string token = $"Client:{serverId}";
-            
-            NetClient.NatPunchModule.SendNatIntroduceRequest(natPunchServerIP, natPunchServerPort, token);
+            var natPunchServerIP = FikaPlugin.Instance.NatPunchServerIP;
+            var natPunchServerPort = FikaPlugin.Instance.NatPunchServerPort;
 
-            _logger.LogInfo($"SendNatIntroduceRequest: {natPunchServerIP}:{natPunchServerPort}");
+            if (result.UseFikaNatPunchServer)
+            {
+                natPunchServerIP = FikaPlugin.FikaNATPunchMasterServer;
+                natPunchServerPort = FikaPlugin.FikaNATPunchMasterPort;
+            }
+
+            var resolved = NetUtils.ResolveAddress(natPunchServerIP, AddressFamily.InterNetwork); // no ipv6 for natpunch master
+            var endPoint = new IPEndPoint(resolved, natPunchServerPort);
+
+            var token = $"Client:{FikaBackendUtils.ServerGuid}";
+
+            _ = Task.Run(() => NatIntroduceTask(endPoint, token, _cts.Token));
+
+            _logger.LogInfo($"Sent NAT Introduce Request to Nat Punch Server: {endPoint}");
         }
-        else
+
+        var ip = result.IPs[0];
+        var port = result.Port;
+        _endPoints = new List<IPEndPoint>(result.IPs.Length);
+        foreach (var address in result.IPs)
         {
-            string ip = result.Ips[0];
-            string localIp = null;
-            if (result.Ips.Length > 1)
-            {
-                localIp = result.Ips[1];
-            }
-            int port = result.Port;
+            _endPoints.Add(NetworkUtils.ResolveRemoteAddress(address, port));
+        }
 
-            if (string.IsNullOrEmpty(ip))
-            {
-                _logger.LogError("IP was empty when pinging!");
-                return false;
-            }
+        if (string.IsNullOrEmpty(ip))
+        {
+            _logger.LogError("IP was empty when pinging!");
+            return false;
+        }
 
-            if (port == default)
-            {
-                _logger.LogError("Port was empty when pinging!");
-                return false;
-            }
-
-            _remoteEndPoint = ResolveRemoteAddress(ip, port);
-            if (!string.IsNullOrEmpty(localIp))
-            {
-                _localEndPoint = new(IPAddress.Parse(localIp), port);
-            }
+        if (port == default)
+        {
+            _logger.LogError("Port was empty when pinging!");
+            return false;
         }
 
         return true;
     }
 
-    /// <summary>
-    /// Resolves a remote address from a string IP or hostname and port.
-    /// </summary>
-    /// <param name="ip">The IP address or hostname.</param>
-    /// <param name="port">The port number.</param>
-    /// <returns>The resolved <see cref="IPEndPoint"/>.</returns>
-    /// <exception cref="ParseException">Thrown if the address cannot be resolved.</exception>
-    private IPEndPoint ResolveRemoteAddress(string ip, int port)
+    private async Task NatIntroduceTask(IPEndPoint endPoint, string token, CancellationToken ct = default)
     {
-        if (IPAddress.TryParse(ip, out IPAddress address))
+        _logger.LogInfo("Send NAT Introduce Request task started.");
+
+        while (!ct.IsCancellationRequested)
         {
-            return new(address, port);
+            NetClient?.NatPunchModule?.SendNatIntroduceRequest(endPoint, token);
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
         }
 
-        IPHostEntry hostEntry = Dns.GetHostEntry(ip);
-        if (hostEntry != null & hostEntry.AddressList.Length > 0)
+        _logger.LogInfo("Send NAT Introduce Request task stopped.");
+    }
+
+    public async Task<bool> AttemptToPingHost(string knockMessage, bool reconnect, CancellationToken ct = default)
+    {
+        var attempts = 0;
+
+        do
         {
-            return new(hostEntry.AddressList[0], port);
+            ct.ThrowIfCancellationRequested();
+
+            attempts++;
+            PingEndPoint(knockMessage, reconnect);
+            if (NetClient != null)
+            {
+                NetClient.PollEvents();
+                NetClient.NatPunchModule?.PollEvents();
+            }
+
+            await Task.Delay(250, ct);
+        } while (!Rejected && !Received && attempts < 50);
+
+        if (!Received)
+        {
+            var logError = "Unable to connect to the session!";
+            if (Rejected)
+            {
+                logError += $" Connection was rejected! [{FikaBackendUtils.ServerGuid}] did not match the server's Guid or data was malformed.";
+            }
+            if (InProgress)
+            {
+                logError += " Session already in progress and you are not active in the session!";
+            }
+            FikaGlobals.LogError(logError);
         }
 
-        throw new ParseException($"ResolveRemoteAddress::Could not parse the address {ip}");
+        return Received;
+    }
+
+    private void RemoveEndpointIfExists(IPEndPoint remote)
+    {
+        for (var i = _endPoints.Count - 1; i >= 0; i--)
+        {
+            var ep = _endPoints[i];
+            if (ep.Address.Equals(remote.Address) && ep.Port == remote.Port)
+            {
+                _endPoints.RemoveAt(i);
+                _logger.LogInfo($"Stopped pinging {ep}");
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -143,18 +200,56 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
     /// <param name="reconnect">Whether this is a reconnect attempt.</param>
     public void PingEndPoint(string message, bool reconnect = false)
     {
-        NetDataWriter writer = new();
-        writer.Put(message);
-        writer.Put(reconnect);
+        // Finalize selection after wait window
+        if (!Received && _hasResponse && Time.realtimeSinceStartup - _firstResponseTime >= _responseWaitSeconds)
+        {
+            var selected = SelectBestCandidate();
 
-        if (_localEndPoint != null)
-        {
-            NetClient.SendUnconnectedMessage(writer.AsReadOnlySpan, _localEndPoint);
+            if (selected != null)
+            {
+                CommitEndpoint(selected);
+                Received = true;
+                _endPoints.Clear(); // stop all further pings
+                return;
+            }
+
+            _logger.LogError($"{_responseWaitSeconds} seconds has passed, but no candidate could be found?");
         }
-        if (_remoteEndPoint != null)
+
+        _writer.Reset();
+        _writer.Put(message);
+        _writer.Put(reconnect);
+
+        foreach (var ipEndPoint in _endPoints)
         {
-            NetClient.SendUnconnectedMessage(writer.AsReadOnlySpan, _remoteEndPoint);
+            NetClient.SendUnconnectedMessage(_writer.AsReadOnlySpan(), ipEndPoint);
         }
+    }
+
+    private void CommitEndpoint(IPEndPoint ep)
+    {
+        FikaBackendUtils.RemoteEndPoint = ep;
+        FikaBackendUtils.LocalPort = (ushort)NetClient.LocalPort;
+
+        _logger.LogInfo($"Picked candidate {ep.Address}:{ep.Port}, using LocalPort: {NetClient.LocalPort}");
+    }
+
+    private IPEndPoint SelectBestCandidate()
+    {
+        if (_candidates.Count == 0)
+        {
+            return null;
+        }
+
+        // prefer LAN
+        var lan = _candidates.FirstOrDefault(c => IsPrivate(c.Address));
+        if (lan != null)
+        {
+            return lan;
+        }
+
+        // otherwise first responder WAN
+        return _candidates[0];
     }
 
     /// <inheritdoc/>
@@ -189,20 +284,27 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
     /// <param name="messageType">The type of unconnected message received.</param>
     public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType)
     {
-        if (reader.TryGetString(out string result))
+        if (reader.TryGetString(out var result))
         {
             switch (result)
             {
                 case "fika.hello":
-                    if (Received)
+                    RemoveEndpointIfExists(remoteEndPoint);
+
+                    if (!_hasResponse)
                     {
-                        break;
+                        _firstResponseTime = Time.realtimeSinceStartup;
+                        _hasResponse = true;
                     }
-                    Received = true;
-                    FikaBackendUtils.RemoteIp = remoteEndPoint.Address.ToString();
-                    FikaBackendUtils.RemotePort = remoteEndPoint.Port;
-                    FikaBackendUtils.LocalPort = NetClient.LocalPort;
-                    _logger.LogInfo($"Got response from {FikaBackendUtils.RemoteIp}:{FikaBackendUtils.RemotePort}, using LocalPort: {NetClient.LocalPort}");
+
+                    if (!_candidates.Any(c =>
+                        c.Address.Equals(remoteEndPoint.Address) &&
+                        c.Port == remoteEndPoint.Port))
+                    {
+                        _candidates.Add(remoteEndPoint);
+                        _logger.LogInfo($"Received candidate: {remoteEndPoint}");
+                    }
+
                     break;
                 case "fika.inprogress":
                     InProgress = true;
@@ -218,6 +320,32 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
         else
         {
             _logger.LogError("Could not parse string");
+        }
+    }
+
+    private bool IsPrivate(IPAddress ip)
+    {
+        switch (ip.AddressFamily)
+        {
+            case AddressFamily.InterNetwork: // IPv4
+                {
+#if DEBUG
+                    _logger.LogInfo($"Checking {ip} which is IPv4");
+#endif
+                    var b = ip.GetAddressBytes();
+                    return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
+                }
+            case AddressFamily.InterNetworkV6: // IPv6
+                {
+#if DEBUG
+                    _logger.LogInfo($"Checking {ip} which is IPv6");
+#endif
+                    var b = ip.GetAddressBytes();
+                    // fc00::/7 > check top 7 bits of first byte (0b1111_1100 = 0xfc)
+                    return (b[0] & 0b1111_1100) == 0b1111_1100;
+                }
+            default:
+                return false;
         }
     }
 
@@ -242,29 +370,32 @@ public class FikaPingingClient : MonoBehaviour, INetEventListener, INatPunchList
     /// <inheritdoc/>
     public void OnNatIntroductionSuccess(IPEndPoint targetEndPoint, NatAddressType type, string token)
     {
-        // Do nothing
+        if (_receivedNatPunchIntroduction)
+        {
+            return;
+        }
+
+        _logger.LogInfo($"Received endpoint {targetEndPoint} from the NAT punching server.");
+        _endPoints.Add(targetEndPoint);
+        _receivedNatPunchIntroduction = true;
+        _cts?.Cancel();
     }
 
-    /// <summary>
-    /// Handles the NAT introduction response and sends hello messages to both local and remote endpoints.
-    /// </summary>
-    /// <param name="natLocalEndPoint">The local NAT endpoint.</param>
-    /// <param name="natRemoteEndPoint">The remote NAT endpoint.</param>
-    /// <param name="token">The NAT punch token.</param>
-    public void OnNatIntroductionResponse(IPEndPoint natLocalEndPoint, IPEndPoint natRemoteEndPoint, string token)
+    public void Dispose()
     {
-        _logger.LogInfo($"OnNatIntroductionResponse: {_remoteEndPoint}");
+        _endPoints.Clear();
+        _candidates.Clear();
+        _endPoints = null;
+        _candidates = null;
+        _writer.Reset();
+        _writer = null;
+        _cts?.Cancel();
 
-        _localEndPoint = natLocalEndPoint;
-        _remoteEndPoint = natRemoteEndPoint;
-
-        Task.Run(async () =>
+        NetClient.Stop();
+        if (!Singleton<FikaPingingClient>.TryRelease(this))
         {
-            for (int i = 0; i < 20; i++)
-            {
-                PingEndPoint("fika.hello");
-                await Task.Delay(250);
-            }
-        });
+            _logger.LogError("Failed to release FikaPingingClient Singleton!");
+        }
+        _logger.LogInfo("Stopped FikaPingingClient");
     }
 }

@@ -1,4 +1,4 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using BepInEx.Logging;
 using Comfort.Common;
@@ -7,18 +7,18 @@ using Dissonance.Integrations.MirrorIgnorance;
 using Diz.Utils;
 using EFT;
 using EFT.Airdrop;
+using EFT.Communications;
 using EFT.Interactive;
 using EFT.InventoryLogic;
+using EFT.Settings;
 using EFT.SynchronizableObjects;
-using EFT.UI;
+using EFT.Vehicle;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.HostClasses;
-using Fika.Core.Main.ObservedClasses.Snapshotting;
 using Fika.Core.Main.Patches.VOIP;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
-using Fika.Core.Jobs;
 using Fika.Core.Modding;
 using Fika.Core.Modding.Events;
 using Fika.Core.Networking.Http;
@@ -26,14 +26,12 @@ using Fika.Core.Networking.Packets;
 using Fika.Core.Networking.Packets.Backend;
 using Fika.Core.Networking.VOIP;
 using Fika.Core.UI.Custom;
-using SPT.Common.Http;
 using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Unity.Jobs;
 #if DEBUG
 using Fika.Core.Networking.Packets.Debug;
 # endif
@@ -45,30 +43,31 @@ using Fika.Core.Networking.Packets.Communication;
 using Fika.Core.Networking.Pooling;
 using Fika.Core.Networking.Open.Nat;
 using Fika.Core.Networking.Open.Nat.Enums;
-using Fika.Core.Networking.Open.Nat.Exceptions;
 using Fika.Core.Networking.Models;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Player.Common;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
+using Fika.Core.Networking.Snapshotting;
 
 namespace Fika.Core.Networking;
 
 /// <summary>
 /// Server used to synchronize all <see cref="FikaClient"/>s
 /// </summary>
-public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchListener, GInterface279, IFikaNetworkManager
+public sealed partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchListener, IAirdropDataSender, IFikaNetworkManager
 {
     public int ReadyClients;
     public DateTime TimeSinceLastPeerDisconnected;
     public bool HasHadPeer;
     public bool RaidInitialized;
     public bool HostReady;
+    public bool LocationReceived;
     public FikaHostWorld FikaHostWorld { get; set; }
     public bool Started
     {
         get
         {
-            return _netServer != null && _netServer.IsRunning;
+            return _netServer?.IsRunning == true;
         }
     }
     public DateTime? GameStartTime
@@ -77,7 +76,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         {
             if (_gameStartTime == null)
             {
-                _gameStartTime = EFTDateTimeClass.UtcNow;
+                _gameStartTime = DateTimeExtensions.UtcNow;
             }
             return _gameStartTime;
         }
@@ -112,6 +111,11 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             _coopHandler = value;
         }
     }
+    public bool StrictInventorySync { get; set; }
+    /// <summary>
+    /// Max MTU used for <see cref="DeliveryMethod.Unreliable"/> batching
+    /// </summary>
+    public int MaxMTU { get; private set; }
 
     public int NetId { get; set; }
     public ESideType RaidSide { get; set; }
@@ -126,25 +130,25 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
     private NetManager _netServer;
     private DateTime? _gameStartTime;
     private NetDataWriter _dataWriter;
-    private int _port;
+    private ushort _port;
     private CoopHandler _coopHandler;
     private ManualLogSource _logger;
     private int _currentNetId;
     private FikaChatUIScript _fikaChat;
     private RaidAdminUIScript _raidAdminUIScript;
-    private CancellationTokenSource _natIntroduceRoutineCts;
+    private CancellationTokenSource _cts;
     private float _statisticsCounter;
     private float _sendThreshold;
     private Dictionary<Profile, bool> _visualProfiles;
     private Dictionary<string, int> _cachedConnections;
-    private JobHandle _stateHandle;
-    private int _snapshotCount;
     private GenericPacket _genericPacket;
+    private DateTime _startTime;
+    private InventoryOperationHandlerPool _inventoryOperationHandlerPool;
 
     internal FikaVOIPServer VOIPServer { get; set; }
     internal FikaVOIPClient VOIPClient { get; set; }
 
-    public async void Init()
+    public async Task Init()
     {
         _netServer = new(this)
         {
@@ -152,14 +156,15 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             UnconnectedMessagesEnabled = true,
             UpdateTime = 50,
             AutoRecycle = true,
-            IPv6Enabled = false,
-            DisconnectTimeout = FikaPlugin.ConnectionTimeout.Value * 1000,
+            IPv6Enabled = true,
+            DisconnectTimeout = FikaPlugin.Instance.Settings.ConnectionTimeout.Value * 1000,
             EnableStatistics = true,
             NatPunchEnabled = true,
-            ChannelsCount = 2
+            ChannelsCount = 2,
+            UseNativeSockets = NativeSocket.IsSupported
         };
 
-        AllowVOIP = FikaPlugin.AllowVOIP.Value;
+        AllowVOIP = FikaPlugin.Instance.Settings.AllowVOIP.Value;
 
         _packetProcessor = new();
         _dataWriter = new();
@@ -168,18 +173,23 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _sendThreshold = 2f;
         _cachedConnections = [];
         _logger = Logger.CreateLogSource("Fika.Server");
-        _snapshotCount = 0;
+        _startTime = DateTime.Now;
+        _inventoryOperationHandlerPool = new InventoryOperationHandlerPool(8, InventoryOperationHandler.CreateInstance);
+        BotInventoryOperationHandlerPool.Create();
         ObservedPlayers = [];
         PlayerAmount = 1;
+        StrictInventorySync = FikaPlugin.Instance.Settings.StrictInventorySync.Value;
 
         ReadyClients = 0;
+
+        MaxMTU = NetConstants.PossibleMtu[0] - NetConstants.HeaderSize; // we assume minimum MTU + unreliable header size
 
         TimeSinceLastPeerDisconnected = DateTime.Now.AddDays(1);
 
         _visualProfiles = [];
         if (!FikaBackendUtils.IsHeadless)
         {
-            Profile ownProfile = FikaGlobals.GetLiteProfile(FikaBackendUtils.IsScav);
+            var ownProfile = FikaGlobals.GetLiteProfile(FikaBackendUtils.IsScav);
             if (ownProfile != null)
             {
                 _visualProfiles.Add(ownProfile, true);
@@ -190,9 +200,9 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             }
         }
 
-        _sendRate = FikaPlugin.SendRate.Value.ToNumber();
+        _sendRate = FikaPlugin.Instance.Settings.SendRate.Value.ToNumber();
         _logger.LogInfo($"Starting server with SendRate: {_sendRate}");
-        _port = FikaPlugin.UDPPort.Value;
+        _port = FikaPlugin.Instance.Settings.UDPPort.Value;
 
         NetworkGameSession.Rtt = 0;
         NetworkGameSession.LossPercent = 0;
@@ -204,85 +214,103 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             NetId = NetId
         };
 
-        PlayerSnapshots.Init();
-
-        RegisterPacketsAndTypes();
+        await RegisterPacketsAndTypes();
+        var pmcName = FikaBackendUtils.IsHeadless ? "Headless" : FikaBackendUtils.PMCName;
+        LoadingScreenUI.Instance.AddPlayer(NetId, pmcName);
 
 #if DEBUG
         AddDebugPackets();
 #endif            
         await NetManagerUtils.CreateCoopHandler();
 
-        if (FikaPlugin.UseUPnP.Value && !FikaPlugin.UseNatPunching.Value)
-        {
-            bool upnpFailed = false;
+        var portMapped = false;
 
+        if (FikaPlugin.Instance.Settings.UseUPnP.Value)
+        {
             try
             {
                 NatDiscoverer discoverer = new();
                 CancellationTokenSource cts = new(10000);
-                NatDevice device = await discoverer.DiscoverDeviceAsync(PortMapper.Upnp, cts);
-                IPAddress extIp = await device.GetExternalIPAsync();
+                var device = await discoverer.DiscoverDeviceAsync(PortMapper.Upnp | PortMapper.Pmp, cts);
+                var extIp = await device.GetExternalIPAsync();
                 _externalIp = extIp.MapToIPv4().ToString();
 
                 await device.CreatePortMapAsync(new Mapping(Protocol.Udp, _port, _port, 300, "Fika UDP"));
+
+                _logger.LogInfo("Port Mapping Succeeded");
+                portMapped = true;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error when attempting to map UPnP. Make sure the selected port is not already open! Exception: {ex.Message}");
-                upnpFailed = true;
-            }
-
-            if (upnpFailed)
-            {
-                Singleton<PreloaderUI>.Instance.ShowErrorScreen("Network Error", LocaleUtils.UI_UPNP_FAILED.Localized());
-                throw new MappingException("Error during mapping. Check log file for more information.");
+                _logger.LogWarning($"Port Mapping Failed: {ex.Message}");
             }
         }
-        else if (FikaPlugin.ForceIP.Value != "")
+        else if (FikaPlugin.Instance.Settings.ForceIP.Value != "")
         {
-            _externalIp = FikaPlugin.ForceIP.Value;
+            _externalIp = FikaPlugin.Instance.Settings.ForceIP.Value;
         }
         else
         {
             if (FikaPlugin.Instance.WanIP == null)
             {
-                throw new NullReferenceException("Failed to start Fika Server because WAN IP was null!");
+                NotificationManager.DisplayMessageNotification("No WAN IP could be found, external players will not be able to join",
+                    iconType: EFT.Communications.ENotificationIconType.Alert, textColor: Color.red);
             }
 
             _externalIp = FikaPlugin.Instance.WanIP.ToString();
         }
 
-        if (FikaPlugin.UseNatPunching.Value)
+        var useNATPunching = !portMapped && FikaPlugin.Instance.Settings.UseNATPunching.Value &&
+            (FikaPlugin.Instance.NatPunchServerEnable || FikaPlugin.Instance.Settings.UseFikaNATPunchServer.Value);
+
+        if (useNATPunching)
         {
+            _logger.LogInfo("NAT Punching Enabled");
+
             _netServer.NatPunchModule.UnsyncedEvents = true;
             _netServer.NatPunchModule.Init(this);
             _netServer.Start();
 
-            _natIntroduceRoutineCts = new CancellationTokenSource();
+            _cts = new CancellationTokenSource();
 
-            string natPunchServerIP = FikaPlugin.Instance.NatPunchServerIP;
-            int natPunchServerPort = FikaPlugin.Instance.NatPunchServerPort;
-            string token = $"Server:{RequestHandler.SessionId}";
+            var natPunchServerIP = FikaPlugin.Instance.NatPunchServerIP;
+            var natPunchServerPort = FikaPlugin.Instance.NatPunchServerPort;
 
-            Task natIntroduceTask = Task.Run(() =>
+            if (FikaPlugin.Instance.Settings.UseFikaNATPunchServer.Value)
             {
-                NatIntroduceRoutine(natPunchServerIP, natPunchServerPort, token, _natIntroduceRoutineCts.Token);
-            });
+                natPunchServerIP = FikaPlugin.FikaNATPunchMasterServer;
+                natPunchServerPort = FikaPlugin.FikaNATPunchMasterPort;
+            }
+
+            var token = $"Server:{FikaBackendUtils.ServerGuid}";
+            var natIntroduceTask = Task.Run(() => NatIntroduceTask(natPunchServerIP, natPunchServerPort, token, _cts.Token));
         }
         else
         {
-            if (FikaPlugin.ForceBindIP.Value != "Disabled")
+            if (FikaPlugin.Instance.Settings.ForceBindIP.Value != "Disabled")
             {
-                if (IPAddress.TryParse(FikaPlugin.ForceBindIP.Value, out IPAddress ipv4))
+                if (!IPAddress.TryParse(FikaPlugin.Instance.Settings.ForceBindIP.Value, out var bindAddress))
                 {
-                    _netServer.Start(ipv4, IPAddress.IPv6Any, _port);
-                }
-                else
-                {
-                    string error = $"{FikaPlugin.ForceBindIP.Value} could not be parsed into a valid IP, raid will not start";
-                    NotificationManagerClass.DisplayWarningNotification(error, EFT.Communications.ENotificationDurationType.Long);
+                    var error = $"{FikaPlugin.Instance.Settings.ForceBindIP.Value} could not be parsed into a valid IP, raid will not start";
+                    NotificationManager.DisplayWarningNotification(
+                        error,
+                        EFT.Communications.ENotificationDurationType.Long);
+
                     throw new ParseException(error);
+                }
+
+                switch (bindAddress.AddressFamily)
+                {
+                    case AddressFamily.InterNetwork: // IPv4
+                        _logger.LogInfo("Hosting on IPv4");
+                        _netServer.Start(bindAddress, IPAddress.IPv6Any, _port);
+                        break;
+                    case AddressFamily.InterNetworkV6: // IPv6
+                        _logger.LogInfo("Hosting on IPv4");
+                        _netServer.Start(IPAddress.Any, bindAddress, _port);
+                        break;
+                    default:
+                        throw new NotSupportedException($"Unsupported address family: {bindAddress.AddressFamily}");
                 }
             }
             else
@@ -293,26 +321,28 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
         _logger.LogInfo("Started Fika Server");
 
-        NotificationManagerClass.DisplayMessageNotification(string.Format(LocaleUtils.SERVER_STARTED.Localized(), _port),
+        NotificationManager.DisplayMessageNotification(string.Format(LocaleUtils.SERVER_STARTED.Localized(), _port),
             EFT.Communications.ENotificationDurationType.Default, EFT.Communications.ENotificationIconType.EntryPoint);
 
-        string[] Ips = [];
-        foreach (string ip in FikaPlugin.Instance.LocalIPs)
+        List<string> ipAddresses = [_externalIp];
+        for (var i = 0; i < FikaPlugin.Instance.LocalIPs.Length; i++)
         {
-            if (ValidateLocalIP(ip))
+            var ip = FikaPlugin.Instance.LocalIPs[i];
+            if (ValidateIP(ip) && !ipAddresses.Contains(ip))
             {
-                Ips = [_externalIp, ip];
+                ipAddresses.Add(ip);
             }
         }
 
-        if (Ips.Length < 1)
+        if (ipAddresses.Count < 1)
         {
-            Ips = [_externalIp, ""];
-            NotificationManagerClass.DisplayMessageNotification(LocaleUtils.NO_VALID_IP.Localized(),
+            ipAddresses = [_externalIp, ""];
+            NotificationManager.DisplayMessageNotification(LocaleUtils.NO_VALID_IP.Localized(),
                 iconType: EFT.Communications.ENotificationIconType.Alert);
         }
 
-        SetHostRequest body = new(Ips, _port, FikaPlugin.UseNatPunching.Value, FikaBackendUtils.IsHeadlessGame);
+        SetHostRequest body = new([.. ipAddresses], _port, useNATPunching,
+            FikaPlugin.Instance.Settings.UseFikaNATPunchServer.Value, FikaBackendUtils.IsHeadless);
         FikaRequestHandler.UpdateSetHost(body);
 
         if (!FikaBackendUtils.IsHeadless)
@@ -323,14 +353,14 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public async Task InitializeVOIP()
     {
-        VoipSettingsClass voipHandler = FikaGlobals.VOIPHandler;
-        GClass1072 controller = Singleton<SharedGameSettingsClass>.Instance.Sound.Controller;
+        var voipHandler = FikaGlobals.VOIPHandler;
+        var controller = Singleton<SettingsManager>.Instance.Sound.Controller;
         if (voipHandler.MicrophoneChecked && !FikaBackendUtils.IsHeadless)
         {
             controller.ResetVoipDisabledReason();
             DissonanceComms.ClientPlayerId = FikaGlobals.GetProfile(RaidSide == ESideType.Savage).ProfileId;
-            await LoadSceneClass.LoadScene(AssetsManagerSingletonClass.Manager,
-                SceneResourceKeyAbstractClass.DissonanceSetupScene, UnityEngine.SceneManagement.LoadSceneMode.Additive);
+            await AssetsManagerExtension.LoadScene(EFT.Assets.Manager,
+                Scenes.DissonanceSetupScene, UnityEngine.SceneManagement.LoadSceneMode.Additive);
 
             MirrorIgnoranceCommsNetwork mirrorCommsNetwork;
             do
@@ -339,18 +369,18 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
                 await Task.Yield();
             } while (mirrorCommsNetwork == null);
 
-            GameObject gameObj = mirrorCommsNetwork.gameObject;
+            var gameObj = mirrorCommsNetwork.gameObject;
             gameObj.AddComponent<FikaCommsNetwork>();
             Destroy(mirrorCommsNetwork);
 
             DissonanceComms_Start_Patch.IsReady = true;
-            DissonanceComms dissonance = gameObj.GetComponent<DissonanceComms>();
+            var dissonance = gameObj.GetComponent<DissonanceComms>();
             dissonance.Invoke("Start", 0);
         }
         else if (FikaBackendUtils.IsHeadless)
         {
-            await LoadSceneClass.LoadScene(AssetsManagerSingletonClass.Manager,
-                SceneResourceKeyAbstractClass.DissonanceSetupScene, UnityEngine.SceneManagement.LoadSceneMode.Additive);
+            await AssetsManagerExtension.LoadScene(EFT.Assets.Manager,
+                Scenes.DissonanceSetupScene, UnityEngine.SceneManagement.LoadSceneMode.Additive);
 
             MirrorIgnoranceCommsNetwork mirrorCommsNetwork;
             do
@@ -359,12 +389,12 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
                 await Task.Yield();
             } while (mirrorCommsNetwork == null);
 
-            GameObject gameObj = mirrorCommsNetwork.gameObject;
+            var gameObj = mirrorCommsNetwork.gameObject;
             gameObj.AddComponent<FikaCommsNetwork>();
             Destroy(mirrorCommsNetwork);
 
             DissonanceComms_Start_Patch.IsReady = true;
-            DissonanceComms dissonance = gameObj.GetComponent<DissonanceComms>();
+            var dissonance = gameObj.GetComponent<DissonanceComms>();
             dissonance.Invoke("Start", 0);
         }
         else
@@ -390,7 +420,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         return;
     }
 
-    private void RegisterPacketsAndTypes()
+    private Task RegisterPacketsAndTypes()
     {
         PoolUtils.CreateAll();
 
@@ -419,12 +449,20 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         RegisterPacket<NetworkSettingsPacket, NetPeer>(OnNetworkSettingsPacketReceived);
         RegisterPacket<InRaidQuestPacket, NetPeer>(OnInraidQuestPacketReceived);
         RegisterPacket<EventControllerInteractPacket, NetPeer>(OnEventControllerInteractPacketReceived);
+        RegisterPacket<LoadingScreenPacket, NetPeer>(OnLoadingScreenPacketReceived);
+        RegisterPacket<LoadingScreenPlayersPacket, NetPeer>(OnLoadingScreenPlayersPacketReceived);
+        RegisterPacket<ClearSnapshotterPacket, NetPeer>(OnClearSnapshotterPacketReceived);
+        RegisterPacket<ProceedRequestPacket, NetPeer>(OnProceedRequestPacketReceived);
+        RegisterPacket<KnifeHitPacket, NetPeer>(OnKnifeHitPacketReceived);
+        RegisterPacket<QuestSyncPacket, NetPeer>(OnQuestSyncPacketReceived);
 
         RegisterReusable<WorldPacket, NetPeer>(OnWorldPacketReceived);
 
         RegisterNetReusable<WeaponPacket, NetPeer>(OnWeaponPacketReceived);
         RegisterNetReusable<CommonPlayerPacket, NetPeer>(OnCommonPlayerPacketReceived);
         RegisterNetReusable<GenericPacket, NetPeer>(OnGenericPacketReceived);
+
+        return Task.CompletedTask;
     }
 
 #if DEBUG
@@ -438,15 +476,15 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
     public void SendAirdropContainerData(EAirdropType containerType, Item item, int ObjectId)
     {
         _logger.LogInfo($"Sending airdrop details, type: {containerType}, id: {ObjectId}");
-        int netId = 0;
+        var netId = 0;
         SynchronizableObject containerObject = null;
-        GameWorld gameWorld = Singleton<GameWorld>.Instance;
-        IEnumerable<SynchronizableObject> syncObjects = gameWorld.SynchronizableObjectLogicProcessor.GetSynchronizableObjects();
-        foreach (SynchronizableObject syncObject in syncObjects)
+        var gameWorld = Singleton<GameWorld>.Instance;
+        var syncObjects = gameWorld.SynchronizableObjectLogicProcessor.GetSynchronizableObjects();
+        foreach (var syncObject in syncObjects)
         {
             if (syncObject.ObjectId == ObjectId)
             {
-                LootableContainer container = syncObject.GetComponentInChildren<LootableContainer>().gameObject.GetComponentInChildren<LootableContainer>();
+                var container = syncObject.GetComponentInChildren<LootableContainer>().gameObject.GetComponentInChildren<LootableContainer>();
                 if (container != null)
                 {
                     netId = container.NetId;
@@ -487,35 +525,9 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         SendData(ref packet, DeliveryMethod.ReliableOrdered);
     }
 
-    private bool ValidateLocalIP(string localIP)
-    {
-        if (string.IsNullOrWhiteSpace(localIP))
-        {
-            return false;
-        }
-
-        if (!IPAddress.TryParse(localIP, out IPAddress address))
-        {
-            return false;
-        }
-
-        // Only check IPv4
-        if (address.AddressFamily != AddressFamily.InterNetwork)
-        {
-            return false;
-        }
-
-        byte[] bytes = address.GetAddressBytes();
-
-        return
-            bytes[0] == 10 ||                                       // 10.0.0.0/8
-            (bytes[0] == 192 && bytes[1] == 168) ||                 // 192.168.0.0/16
-            (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31);  // 172.16.0.0/12
-    }
-
     public int PopNetId()
     {
-        int netId = _currentNetId;
+        var netId = _currentNetId;
         _currentNetId++;
 
         return netId;
@@ -528,56 +540,35 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public void CreateFikaChat()
     {
-        if (FikaPlugin.EnableChat.Value)
+        if (FikaPlugin.Instance.Settings.EnableChat.Value)
         {
             _fikaChat = FikaChatUIScript.Create();
         }
     }
 
-    protected void Update()
+    private void Update()
     {
         _netServer?.PollEvents();
-        float unscaledDelta = Time.unscaledDeltaTime;
-        _stateHandle = new InterpolatorJob(unscaledDelta, NetworkTimeSync.NetworkTime, _snapshotCount)
-            .Schedule();
 
-        _statisticsCounter += unscaledDelta;
+        var networkTime = NetworkTimeSync.NetworkTime;
+        for (var i = 0; i < ObservedPlayers.Count; i++)
+        {
+            ObservedPlayers[i].ManualStateUpdate(networkTime);
+        }
+
+        _statisticsCounter += Time.unscaledDeltaTime;
         if (_statisticsCounter > _sendThreshold)
         {
             _statisticsCounter -= _sendThreshold;
             SendStatisticsPacket();
         }
 
-        if (!FikaBackendUtils.IsHeadless && Input.GetKeyDown(FikaPlugin.ChatKey.Value.MainKey))
+        if (!FikaBackendUtils.IsHeadless && Input.GetKeyDown(FikaPlugin.Instance.Settings.ChatKey.Value.MainKey))
         {
             if (_fikaChat != null)
             {
                 _fikaChat.ToggleChat();
             }
-        }
-    }
-
-    protected void LateUpdate()
-    {
-        try
-        {
-            _stateHandle.Complete();
-            for (int i = 0; i < ObservedPlayers.Count; i++)
-            {
-                ObservedPlayer player = ObservedPlayers[i];
-                if (player.CurrentPlayerState.ShouldUpdate)
-                {
-                    player.ManualStateUpdate();
-                }
-            }
-        }
-        finally
-        {
-            for (int i = 0; i < _snapshotCount; i++)
-            {
-                ArraySegmentPooling.Return(PlayerSnapshots.Snapshots[i]);
-            }
-            _snapshotCount = 0;
         }
     }
 
@@ -588,32 +579,18 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             return;
         }
 
-        int fps = (int)(1f / Time.unscaledDeltaTime);
+        var fps = Mathf.CeilToInt(1f / Time.unscaledDeltaTime);
         StatisticsPacket packet = new(fps);
 
-        SendData(ref packet, DeliveryMethod.ReliableUnordered);
+        SendData(ref packet, DeliveryMethod.Unreliable);
     }
 
-    protected void OnDestroy()
+    private void OnDestroy()
     {
         _netServer?.Stop();
-        try
-        {
-            _stateHandle.Complete();
-        }
-        finally
-        {
-            for (int i = 0; i < _snapshotCount; i++)
-            {
-                ArraySegmentPooling.Return(PlayerSnapshots.Snapshots[i]);
-            }
-            _snapshotCount = 0;
-        }
         _genericPacket.Clear();
 
-
         PoolUtils.ReleaseAll();
-        PlayerSnapshots.Clear();
 
         if (_fikaChat != null)
         {
@@ -624,6 +601,8 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             Destroy(_raidAdminUIScript);
         }
 
+        BotInventoryOperationHandlerPool.Clear();
+
         FikaEventDispatcher.DispatchEvent(new FikaNetworkManagerDestroyedEvent(this));
     }
 
@@ -633,12 +612,12 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.PutEnum(EPacketType.Serializable);
 
         _packetProcessor.WriteNetSerializable(_dataWriter, ref packet);
-        _netServer.SendToAll(_dataWriter.AsReadOnlySpan, deliveryMethod);
+        _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), deliveryMethod);
     }
 
     public void SendGenericPacket(EGenericSubPacketType type, IPoolSubPacket subpacket, bool broadcast = false, NetPeer peerToIgnore = null)
     {
-        GenericPacket packet = _genericPacket;
+        var packet = _genericPacket;
         packet.Type = type;
         packet.SubPacket = subpacket;
         SendNetReusable(ref packet, DeliveryMethod.ReliableOrdered, broadcast, peerToIgnore);
@@ -646,7 +625,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public void SendGenericPacketToPeer(EGenericSubPacketType type, IPoolSubPacket subpacket, NetPeer peer)
     {
-        GenericPacket packet = _genericPacket;
+        var packet = _genericPacket;
         packet.Type = type;
         packet.SubPacket = subpacket;
         SendNetReusableToPeer(ref packet, DeliveryMethod.ReliableOrdered, peer);
@@ -658,7 +637,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.PutEnum(EPacketType.Serializable);
 
         _packetProcessor.WriteNetReusable(_dataWriter, ref packet);
-        _netServer.SendToAll(_dataWriter.AsReadOnlySpan, deliveryMethod, peerToIgnore);
+        _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), deliveryMethod, peerToIgnore);
 
         packet.Clear();
     }
@@ -669,7 +648,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.PutEnum(EPacketType.Serializable);
 
         _packetProcessor.WriteNetReusable(_dataWriter, ref packet);
-        peer.Send(_dataWriter.AsReadOnlySpan, deliveryMethod);
+        peer.Send(_dataWriter.AsReadOnlySpan(), deliveryMethod);
 
         packet.Clear();
     }
@@ -680,16 +659,22 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.PutEnum(EPacketType.Serializable);
 
         _packetProcessor.WriteNetSerializable(_dataWriter, ref packet);
-        _netServer.SendToAll(_dataWriter.AsReadOnlySpan, deliveryMethod, peerToIgnore);
+        _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), deliveryMethod, peerToIgnore);
     }
 
-    public void SendPlayerState(ref PlayerStatePacket packet)
+    public void SendPlayerState(ref PlayerStateData packet)
     {
         _dataWriter.Reset();
         _dataWriter.PutEnum(EPacketType.PlayerState);
+        _dataWriter.Put(NetworkTimeSync.NetworkTime);
         _dataWriter.PutUnmanaged(packet);
 
-        _netServer.SendToAll(_dataWriter.AsReadOnlySpan, DeliveryMethod.Unreliable);
+        _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), DeliveryMethod.Unreliable);
+    }
+
+    public void BatchSendStates(NetDataWriter writer)
+    {
+        _netServer.SendToAll(writer.AsReadOnlySpan(), DeliveryMethod.Unreliable);
     }
 
     public void SendDataToPeer<T>(ref T packet, DeliveryMethod deliveryMethod, NetPeer peer) where T : INetSerializable
@@ -698,7 +683,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.PutEnum(EPacketType.Serializable);
 
         _packetProcessor.WriteNetSerializable(_dataWriter, ref packet);
-        peer.Send(_dataWriter.AsReadOnlySpan, deliveryMethod);
+        peer.Send(_dataWriter.AsReadOnlySpan(), deliveryMethod);
     }
 
     public void SendReusableToAll<T>(T packet, DeliveryMethod deliveryMethod, NetPeer peerToExlude = null) where T : class, IReusable, new()
@@ -709,11 +694,11 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _packetProcessor.Write(_dataWriter, packet);
         if (peerToExlude != null)
         {
-            _netServer.SendToAll(_dataWriter.AsReadOnlySpan, deliveryMethod, peerToExlude);
+            _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), deliveryMethod, peerToExlude);
         }
         else
         {
-            _netServer.SendToAll(_dataWriter.AsReadOnlySpan, deliveryMethod);
+            _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), deliveryMethod);
         }
 
         packet.Flush();
@@ -730,16 +715,16 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _dataWriter.Reset();
         _dataWriter.PutEnum(EPacketType.VOIP);
         _dataWriter.Put(data.AsSpan());
-        peer.Send(_dataWriter.AsReadOnlySpan, deliveryMethod);
+        peer.Send(_dataWriter.AsReadOnlySpan(), deliveryMethod);
     }
 
-    public void SendBTRPacket(ref BTRDataPacketStruct data)
+    public void SendBTRPacket(ref ShapshotBTRMessage data)
     {
         _dataWriter.Reset();
         _dataWriter.PutEnum(EPacketType.BTR);
         _dataWriter.PutUnmanaged(data);
 
-        _netServer.SendToAll(_dataWriter.AsReadOnlySpan, DeliveryMethod.Unreliable);
+        _netServer.SendToAll(_dataWriter.AsReadOnlySpan(), DeliveryMethod.Unreliable);
     }
 
     public void SendStashes()
@@ -747,27 +732,27 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         if (Singleton<GameWorld>.Instantiated)
         {
             StashesPacket stashesPacket = new();
-            GameWorld gameWorld = Singleton<GameWorld>.Instance;
+            var gameWorld = Singleton<GameWorld>.Instance;
 
             if (gameWorld.BtrController != null)
             {
                 stashesPacket.HasBTR = true;
-                int length = gameWorld.BtrController.TransferItemsController.List_0.Count;
-                stashesPacket.BTRStashes = new StashItemClass[length];
-                for (int i = 0; i < length; i++)
+                var length = gameWorld.BtrController.TransferItemsController._transferContainers.Count;
+                stashesPacket.BTRStashes = new Stash[length];
+                for (var i = 0; i < length; i++)
                 {
-                    stashesPacket.BTRStashes[i] = gameWorld.BtrController.TransferItemsController.List_0[i];
+                    stashesPacket.BTRStashes[i] = gameWorld.BtrController.TransferItemsController._transferContainers[i];
                 }
             }
 
             if (gameWorld.TransitController != null)
             {
                 stashesPacket.HasTransit = true;
-                int length = gameWorld.TransitController.TransferItemsController.List_0.Count;
-                stashesPacket.TransitStashes = new StashItemClass[length];
-                for (int i = 0; i < length; i++)
+                var length = gameWorld.TransitController.TransferItemsController._transferContainers.Count;
+                stashesPacket.TransitStashes = new Stash[length];
+                for (var i = 0; i < length; i++)
                 {
-                    stashesPacket.TransitStashes[i] = gameWorld.TransitController.TransferItemsController.List_0[i];
+                    stashesPacket.TransitStashes[i] = gameWorld.TransitController.TransferItemsController._transferContainers[i];
                 }
             }
 
@@ -777,8 +762,8 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public void OnPeerConnected(NetPeer peer)
     {
-        NotificationManagerClass.DisplayMessageNotification(string.Format(LocaleUtils.PEER_CONNECTED.Localized(), peer.Port),
-            iconType: EFT.Communications.ENotificationIconType.Friend);
+        NotificationManager.DisplayMessageNotification(string.Format(LocaleUtils.PEER_CONNECTED.Localized(), peer.Port),
+            iconType: ENotificationIconType.Friend);
         _logger.LogInfo($"Connection established with {peer.Address}:{peer.Port}, id: {peer.Id}");
 
         HasHadPeer = true;
@@ -788,6 +773,17 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
         SendGenericPacket(EGenericSubPacketType.UpdateBackendData,
             UpdateBackendData.FromValue(PlayerAmount), true);
+
+        var loadingPacket = LoadingScreenUI.Instance.GetPlayersPacket();
+        SendDataToPeer(ref loadingPacket, DeliveryMethod.ReliableUnordered, peer);
+
+        // force update
+        var updatePackets = LoadingScreenUI.Instance.GetLatestStates();
+        for (var i = 0; i < updatePackets.Length; i++)
+        {
+            var updatePacket = updatePackets[i];
+            SendDataToPeer(ref updatePacket, DeliveryMethod.ReliableUnordered, peer);
+        }
     }
 
     public void OnNetworkError(IPEndPoint endPoint, SocketError socketErrorCode)
@@ -797,7 +793,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType)
     {
-        bool started = false;
+        var started = false;
         if (_coopHandler != null && _coopHandler.LocalGameInstance != null && Singleton<IFikaGame>.Instance.GameController.RaidStarted)
         {
             started = true;
@@ -808,26 +804,26 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
             _logger.LogInfo("[SERVER] Received discovery request. Send discovery response");
             NetDataWriter resp = new();
             resp.Put(1);
-            _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan, remoteEndPoint);
+            _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan(), remoteEndPoint);
 
             return;
         }
 
-        if (reader.TryGetString(out string data))
+        if (reader.TryGetString(out var data))
         {
             NetDataWriter resp = new();
-            string guid = FikaBackendUtils.ServerGuid.ToString();
+            var guid = FikaBackendUtils.ServerGuid.ToString();
             if (data == guid)
             {
-                bool reconnect = reader.GetBool();
+                var reconnect = reader.GetBool();
                 resp.Put(started && !reconnect ? "fika.inprogress" : "fika.hello");
-                _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan, remoteEndPoint);
+                _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan(), remoteEndPoint);
             }
             else
             {
                 _logger.LogError($"PingingRequest::Data was not as expected: {data}");
                 resp.Put("fika.reject");
-                _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan, remoteEndPoint);
+                _netServer.SendUnconnectedMessage(resp.AsReadOnlySpan(), remoteEndPoint);
             }
         }
         else
@@ -865,13 +861,13 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _logger.LogInfo($"Peer disconnected {peer.Port}, info: {disconnectInfo.Reason}");
         if (disconnectInfo.Reason != DisconnectReason.RemoteConnectionClose)
         {
-            NotificationManagerClass.DisplayMessageNotification(string.Format(LocaleUtils.PEER_DISCONNECTED.Localized(), [peer.Port, disconnectInfo.Reason]),
+            NotificationManager.DisplayMessageNotification(string.Format(LocaleUtils.PEER_DISCONNECTED.Localized(), [peer.Port, disconnectInfo.Reason]),
                     iconType: EFT.Communications.ENotificationIconType.Alert);
         }
 
         if (peer.Tag is string nickname)
         {
-            ClientDisconnected disconnectPacket = ClientDisconnected.FromValue(nickname);
+            var disconnectPacket = ClientDisconnected.FromValue(nickname);
             disconnectPacket.Execute();
             SendGenericPacket(EGenericSubPacketType.ClientDisconnected,
                 disconnectPacket, true, peer);
@@ -900,11 +896,13 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
                 }
             }
         }
+
+        FikaEventDispatcher.DispatchEvent(new PeerDisconnectedEvent(peer, this));
     }
 
     private async Task WaitBeforeStopping()
     {
-        int minutes = 0;
+        var minutes = 0;
         while (minutes < 5)
         {
             await Task.Delay(TimeSpan.FromMinutes(1));
@@ -921,6 +919,13 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     private void DisconnectHeadless()
     {
+        if (!Singleton<IFikaGame>.Instantiated)
+        {
+            _logger.LogError("Headless is trying to disconnect when there is no FikaGame started, stopping client...");
+            Application.Quit();
+            return;
+        }
+
         Singleton<IFikaGame>.Instance.Stop(null, ExitStatus.Survived, "");
     }
 
@@ -939,9 +944,13 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
                 _packetProcessor.ReadAllPackets(reader, peer);
                 break;
             case EPacketType.PlayerState:
-                if (_snapshotCount < PlayerSnapshots.Snapshots.Length)
+                var remoteTime = reader.GetDouble();
+                var localTime = NetworkTimeSync.NetworkTime;
+                var snapshot = reader.GetUnmanaged<PlayerStateData>();
+                if (_coopHandler.Players.TryGetValue(snapshot.NetId, out var player))
                 {
-                    PlayerSnapshots.Snapshots[_snapshotCount++] = ArraySegmentPooling.Get(reader.GetRemainingBytesSpan());
+                    var header = new PlayerStateSnapshot(in snapshot, remoteTime, localTime);
+                    player.Snapshotter.AddSnapshot(in header);
                 }
                 break;
             case EPacketType.VOIP:
@@ -989,6 +998,22 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _packetProcessor.RegisterNestedType(writeDelegate, readDelegate);
     }
 
+    public void UnregisterPacket<T>() where T : INetSerializable
+    {
+        if (!_packetProcessor.RemoveSubscription<T>())
+        {
+            _logger.LogError($"Failed to remove {typeof(T).Name} from the packet subscription list");
+        }
+    }
+
+    public void UnregisterNetReusable<T>() where T : INetReusable
+    {
+        if (!_packetProcessor.RemoveSubscription<T>())
+        {
+            _logger.LogError($"Failed to remove {typeof(T).Name} from the packet subscription list");
+        }
+    }
+
     public void PrintStatistics()
     {
         _logger.LogInfo("..:: Fika Server Session Statistics ::..");
@@ -997,6 +1022,7 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
         _logger.LogInfo($"Received packets: {_netServer.Statistics.PacketsReceived}");
         _logger.LogInfo($"Received data: {FikaGlobals.FormatFileSize(_netServer.Statistics.BytesReceived)}");
         _logger.LogInfo($"Packet loss: {_netServer.Statistics.PacketLossPercent}%");
+        _logger.LogInfo($"Time in raid: {_startTime - DateTime.Now:hh\\h\\ mm\\m\\ ss\\s}");
     }
 
     public void ToggleAdminUI()
@@ -1008,7 +1034,6 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
     }
 
     // NAT Punching
-
     public void OnNatIntroductionRequest(IPEndPoint localEndPoint, IPEndPoint remoteEndPoint, string token)
     {
         // Do nothing
@@ -1016,47 +1041,63 @@ public partial class FikaServer : MonoBehaviour, INetEventListener, INatPunchLis
 
     public void OnNatIntroductionSuccess(IPEndPoint targetEndPoint, NatAddressType type, string token)
     {
-        // Do nothing
-    }
-    public void OnNatIntroductionResponse(IPEndPoint localEndPoint, IPEndPoint remoteEndPoint, string token)
-    {
-        _logger.LogInfo($"OnNatIntroductionResponse: {remoteEndPoint}");
-
-        Task.Run(async () =>
+        /*_logger.LogInfo($"Received NAT introduction from master server for [{targetEndPoint}]: {token}");
+        var message = token.Split(":")[1];
+        if (!Guid.TryParse(message, out var id))
         {
-            NetDataWriter data = new();
-            data.Put("fika.hello");
+            Console.WriteLine($"Could not parse token: {message}");
+        }
 
-            for (int i = 0; i < 20; i++)
-            {
-                _netServer.SendUnconnectedMessage(data, localEndPoint);
-                _netServer.SendUnconnectedMessage(data, remoteEndPoint);
-                await Task.Delay(250);
-            }
-        });
+        if (id != FikaBackendUtils.ServerGuid)
+        {
+            Console.WriteLine($"Incorrect GUID: {id}");
+        }
+
+        _logger.LogInfo($"Received endpoint {targetEndPoint} from the NAT punching server.");*/
+
+        // todo: proper connect
+        //_netServer.Connect(targetEndPoint, id.ToString());
+    }
+
+    public NetPeer GetPeerById(int id)
+    {
+        return (NetPeer)_netServer.GetPeerById(id);
     }
 
     public void StopNatIntroduceRoutine()
     {
-        if (_natIntroduceRoutineCts != null)
-        {
-            _natIntroduceRoutineCts.Cancel();
-        }
+        _cts?.Cancel();
     }
 
-    private async void NatIntroduceRoutine(string natPunchServerIP, int natPunchServerPort, string token, CancellationToken ct)
+    private async Task NatIntroduceTask(string natPunchServerIP, int natPunchServerPort, string token, CancellationToken ct = default)
     {
-        _logger.LogInfo("NatIntroduceRoutine started.");
+        _logger.LogInfo("Send NAT Introduce Request task started.");
 
         while (!ct.IsCancellationRequested)
         {
-            _logger.LogInfo($"SendNatIntroduceRequest: {natPunchServerIP}:{natPunchServerPort}");
-
             _netServer.NatPunchModule.SendNatIntroduceRequest(natPunchServerIP, natPunchServerPort, token);
 
             await Task.Delay(TimeSpan.FromSeconds(15));
         }
 
-        _logger.LogInfo("NatIntroduceRoutine ended.");
+        _logger.LogInfo("Send NAT Introduce Request task stopped.");
+    }
+
+    /// <summary>
+    /// Gets a pooled handler
+    /// </summary>
+    /// <returns>A pooled handler</returns>
+    public InventoryOperationHandler GetHandler()
+    {
+        return _inventoryOperationHandlerPool.Get();
+    }
+
+    /// <summary>
+    /// Returns a pooled handler
+    /// </summary>
+    /// <param name="handler">The handler to return</param>
+    public void ReturnHandler(InventoryOperationHandler handler)
+    {
+        _inventoryOperationHandlerPool.ReturnHandler(handler);
     }
 }

@@ -1,9 +1,13 @@
-﻿using BepInEx.Logging;
+﻿using EFT.Settings;
+using System;
+using System.Threading.Tasks;
 using Comfort.Common;
 using EFT;
+using EFT.Interactive;
 using EFT.InventoryLogic;
 using EFT.InventoryLogic.Operations;
 using EFT.UI;
+using Fika.Core.Main.BaseClasses;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
@@ -12,20 +16,14 @@ using Fika.Core.Networking.Packets.Communication;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
 using Fika.Core.Networking.Packets.World;
-using System;
-using System.Threading.Tasks;
+using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Main.ClientClasses;
 
-public sealed class ClientInventoryController : Player.PlayerOwnerInventoryController
+public sealed class ClientInventoryController : BaseInventoryController
 {
-    public FikaPlayer FikaPlayer
-    {
-        get
-        {
-            return _fikaPlayer;
-        }
-    }
+    public FikaPlayer FikaPlayer { get; }
+
     public override bool HasDiscardLimits
     {
         get
@@ -33,17 +31,16 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
             return false;
         }
     }
-    private readonly ManualLogSource _logger;
     private readonly Player _player;
-    public readonly FikaPlayer _fikaPlayer;
+    private readonly ClientInventoryOperationHandlerPool _clientInventoryOperationHandlerPool;
 
-    public ClientInventoryController(Player player, Profile profile, bool examined) : base(player, profile, examined)
+    public ClientInventoryController(Player player, Profile profile, bool examined, bool strictSync) : base(player, profile, examined, strictSync)
     {
         _player = player;
-        _fikaPlayer = (FikaPlayer)player;
-        MongoID_0 = MongoID.Generate(true);
-        PlayerSearchController = new PlayerSearchControllerClass(profile, this);
-        _logger = BepInEx.Logging.Logger.CreateLogSource(nameof(ClientInventoryController));
+        FikaPlayer = (FikaPlayer)player;
+        _currentId = MongoID.Generate(true);
+        PlayerSearchController = new ActiveSearchController(profile, this);
+        _clientInventoryOperationHandlerPool = new ClientInventoryOperationHandlerPool(8, ClientInventoryOperationHandler.CreateInstance);
     }
 
     public override IPlayerSearchController PlayerSearchController { get; }
@@ -57,7 +54,7 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
                 Type = ERequestSubPacketType.TraderServices,
                 RequestSubPacket = new RequestSubPackets.TraderServicesRequest()
                 {
-                    NetId = _fikaPlayer.NetId,
+                    NetId = FikaPlayer.NetId,
                     TraderId = traderId
                 }
             };
@@ -66,23 +63,29 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
             return;
         }
 
-        _fikaPlayer.UpdateTradersServiceData(traderId).HandleExceptions();
+        FikaPlayer.UpdateTradersServiceData(traderId).HandleExceptions();
     }
 
     public override void CallMalfunctionRepaired(Weapon weapon)
     {
-        if (Singleton<SharedGameSettingsClass>.Instance.Game.Settings.MalfunctionVisability)
+        if (Singleton<SettingsManager>.Instance.Game.Settings.MalfunctionVisability)
         {
-            MonoBehaviourSingleton<PreloaderUI>.Instance.MalfunctionGlow.ShowGlow(BattleUIMalfunctionGlow.EGlowType.Repaired, true, method_41());
+            MonoBehaviourSingleton<PreloaderUI>.Instance.MalfunctionGlow.ShowGlow(BattleUIMalfunctionGlow.EGlowType.Repaired, true, GetGlowAlphaMultiplier());
         }
     }
 
-    public override void vmethod_1(BaseInventoryOperationClass operation, Callback callback)
+    public override void ExecuteStationaryOperation(StationaryWeapon stationaryWeapon, Callback callback = null)
+    {
+        FikaPlayer.OperationStationaryCallbackId = NextOperationId;
+        base.ExecuteStationaryOperation(stationaryWeapon, callback);
+    }
+
+    public override void Execute(EFT.InventoryLogic.Operations.AbstractOperation operation, Callback callback)
     {
         HandleOperation(operation, callback).HandleExceptions();
     }
 
-    private async Task HandleOperation(BaseInventoryOperationClass operation, Callback callback)
+    private async Task HandleOperation(EFT.InventoryLogic.Operations.AbstractOperation operation, Callback callback)
     {
         if (_player.HealthController.IsAlive)
         {
@@ -91,22 +94,40 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
         RunClientOperation(operation, callback);
     }
 
-    private void RunClientOperation(BaseInventoryOperationClass operation, Callback callback)
+    /// <summary>
+    /// Gets an inventory handler
+    /// </summary>
+    /// <returns>A pooled handler</returns>
+    public ClientInventoryOperationHandler GetHandler()
     {
-        if (!vmethod_0(operation))
+        return _clientInventoryOperationHandlerPool.Get();
+    }
+
+    /// <summary>
+    /// Returns a handler
+    /// </summary>
+    /// <param name="handler">The handler to return</param>
+    public void ReturnHandler(ClientInventoryOperationHandler handler)
+    {
+        _clientInventoryOperationHandlerPool.ReturnHandler(handler);
+    }
+
+    private void RunClientOperation(EFT.InventoryLogic.Operations.AbstractOperation operation, Callback callback)
+    {
+        if (!CanExecute(operation))
         {
             operation.Dispose();
-            callback.Fail("LOCAL: hands controller can't perform this operation");
+            callback?.Fail("LOCAL: hands controller can't perform this operation");
             return;
         }
 
         // Do not replicate picking up quest items, throws an error on the other clients            
-        if (operation is MoveOperationClass moveOperation)
+        if (operation is MoveOperation moveOperation)
         {
             var lootedItem = moveOperation.Item;
             if (lootedItem.QuestItem)
             {
-                if (_fikaPlayer.AbstractQuestControllerClass is ClientSharedQuestController sharedQuestController
+                if (FikaPlayer.QuestController is ClientSharedQuestController sharedQuestController
                     && sharedQuestController.ContainsAcceptedType("FindItem")
                     && !sharedQuestController.CheckForTemplateId(lootedItem.TemplateId))
                 {
@@ -115,46 +136,41 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
                     // We use templateId because each client gets a unique itemId
                     QuestItemPacket questPacket = new()
                     {
-                        Nickname = _fikaPlayer.Profile.Info.MainProfileNickname,
+                        Nickname = FikaPlayer.Profile.Info.MainProfileNickname,
                         ItemId = lootedItem.TemplateId
                     };
-                    _fikaPlayer.PacketSender.NetworkManager.SendData(ref questPacket, DeliveryMethod.ReliableOrdered, true);
+                    FikaPlayer.PacketSender.NetworkManager.SendData(ref questPacket, DeliveryMethod.ReliableOrdered, true);
                 }
-                base.vmethod_1(operation, callback);
+                base.Execute(operation, callback);
                 return;
             }
         }
 
         // Do not replicate stashing quest items
-        if (operation is RemoveOperationClass discardOperation && discardOperation.Item.QuestItem)
+        if (operation is RemoveOperation discardOperation && discardOperation.Item.QuestItem)
         {
-            base.vmethod_1(operation, callback);
+            base.Execute(operation, callback);
             return;
         }
 
         // Do not replicate search operations
-        if (operation is SearchContentOperationResultClass or GClass3496) // search for "DialogController not available"
+        if (operation is SinglePlayerSearchContentOperation or SetDialogProgressOperation) // search for "DialogController not available"
         {
-            base.vmethod_1(operation, callback);
+            base.Execute(operation, callback);
             return;
         }
 
-        ClientInventoryOperationHandler handler = new()
-        {
-            Operation = operation,
-            Callback = callback,
-            InventoryController = this
-        };
-
-        var operationNum = AddOperationCallback(operation, handler.ReceiveStatusFromServer);
-        _fikaPlayer.PacketSender.NetworkManager.SendGenericPacket(EGenericSubPacketType.InventoryOperation,
-                InventoryPacket.FromValue(_fikaPlayer.NetId, operation));
+        var handler = _clientInventoryOperationHandlerPool.Get();
+        handler.Set(this, operation, callback);
+        var operationNum = AddOperationCallback(operation, handler.ServerStatusDelegate);
+        FikaPlayer.PacketSender.NetworkManager.SendGenericPacket(EGenericSubPacketType.InventoryOperation,
+                InventoryPacket.FromValue(FikaPlayer.NetId, operation));
 #if DEBUG
         ConsoleScreen.Log($"InvOperation: {operation.GetType().Name}, Id: {operation.Id}");
 #endif
     }
 
-    public override bool HasCultistAmulet(out CultistAmuletItemClass amulet)
+    public override bool HasCultistAmulet(out CultistAmulet amulet)
     {
         amulet = null;
         using var enumerator = Inventory.GetItemsInSlots([EquipmentSlot.Pockets])
@@ -162,7 +178,7 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
 
         while (enumerator.MoveNext())
         {
-            if (enumerator.Current is CultistAmuletItemClass cultistAmuletClass)
+            if (enumerator.Current is CultistAmulet cultistAmuletClass)
             {
                 amulet = cultistAmuletClass;
                 return true;
@@ -171,92 +187,26 @@ public sealed class ClientInventoryController : Player.PlayerOwnerInventoryContr
         return false;
     }
 
-    public ushort AddOperationCallback(BaseInventoryOperationClass operation, Action<ServerOperationStatus> callback)
+    public ushort AddOperationCallback(EFT.InventoryLogic.Operations.AbstractOperation operation, Action<ServerOperationStatus> callback)
     {
         var id = operation.Id;
-        _fikaPlayer.OperationCallbacks.Add(id, callback);
+        FikaPlayer.OperationCallbacks.Add(id, callback);
         return id;
     }
 
-    public override SearchContentOperation vmethod_2(SearchableItemItemClass item)
+    public override SearchContentOperation CreateSearchOperation(SearchableItem item)
     {
-        return new SearchContentOperationResultClass(method_12(), this, PlayerSearchController, Profile, item);
-    }
-
-    public class ClientInventoryOperationHandler
-    {
-        public BaseInventoryOperationClass Operation;
-        public Callback Callback;
-        public ClientInventoryController InventoryController;
-        public IResult OperationResult;
-        public ServerOperationStatus ServerStatus;
-
-        public void ReceiveStatusFromServer(ServerOperationStatus serverStatus)
-        {
-            ServerStatus = serverStatus;
-            switch (serverStatus.Status)
-            {
-                case EOperationStatus.Started:
-                    Operation.method_0(ExecuteResult);
-                    return;
-                case EOperationStatus.Succeeded:
-                    HandleFinalResult(SuccessfulResult.New);
-                    return;
-                case EOperationStatus.Failed:
-                    InventoryController._logger.LogError($"{InventoryController.ID} - Client operation rejected by server: {Operation.Id} - {Operation}\r\nReason: {serverStatus.Error}");
-                    HandleFinalResult(new FailedResult(serverStatus.Error));
-                    break;
-                default:
-                    InventoryController._logger.LogError("ReceiveStatusFromServer: Status was missing?");
-                    break;
-            }
-        }
-
-        private void ExecuteResult(IResult executeResult)
-        {
-            if (!executeResult.Succeed)
-            {
-                InventoryController._logger.LogError($"{InventoryController.ID} - Client operation critical failure: {Operation.Id} server status: {"SERVERRESULT"} - {Operation}\r\nError: {executeResult.Error}");
-            }
-            HandleFinalResult(executeResult);
-        }
-
-        private void HandleFinalResult(IResult result)
-        {
-            var result2 = OperationResult;
-            if (result2 == null || !result2.Failed)
-            {
-                OperationResult = result;
-            }
-            var serverStatus = ServerStatus.Status;
-            if (!serverStatus.Finished())
-            {
-                return;
-            }
-            var localStatus = Operation.Status;
-            if (localStatus.InProgress())
-            {
-                if (Operation is GInterface441 ginterface)
-                {
-                    ginterface.Terminate();
-                }
-                return;
-            }
-            Operation.Dispose();
-            if (serverStatus != localStatus)
-            {
-                if (localStatus.Finished())
-                {
-                    InventoryController._logger.LogError($"{InventoryController.ID} - Operation critical failure - status mismatch: {Operation.Id} server status: {serverStatus} client status: {localStatus} - {Operation}");
-                }
-            }
-            Callback?.Invoke(OperationResult);
-        }
+        return new SinglePlayerSearchContentOperation(GetAndIncrementNextOperationId(), this, PlayerSearchController, Profile, item);
     }
 
     public readonly struct ServerOperationStatus(EOperationStatus status, string error)
     {
         public readonly EOperationStatus Status = status;
         public readonly string Error = error;
+    }
+
+    public void ClearPool()
+    {
+        _clientInventoryOperationHandlerPool.Dispose();
     }
 }

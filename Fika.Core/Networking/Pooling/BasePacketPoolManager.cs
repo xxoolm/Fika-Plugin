@@ -27,16 +27,16 @@ public abstract class BasePacketPoolManager<TEnum, TType>
 
     /// <summary>
     /// Creates a pool of packets for each packet type based on the registered factory functions.
-    /// Initializes pools with an initial capacity of 2.
+    /// Initializes pools with an initial capacity of 1.
     /// </summary>
     public void CreatePool()
     {
         if (_pool == null)
         {
             _pool = new PacketPool<TType>[_subPacketFactories.Length];
-            for (int i = 0; i < _subPacketFactories.Length; i++)
+            for (var i = 0; i < _subPacketFactories.Length; i++)
             {
-                _pool[i] = new(2, _subPacketFactories[i]);
+                _pool[i] = new(1, _subPacketFactories[i]);
             }
         }
 
@@ -50,7 +50,7 @@ public abstract class BasePacketPoolManager<TEnum, TType>
     {
         if (_pool != null)
         {
-            for (int i = 0; i < _pool.Length; i++)
+            for (var i = 0; i < _pool.Length; i++)
             {
                 _pool[i].Dispose();
             }
@@ -110,10 +110,8 @@ public abstract class BasePacketPoolManager<TEnum, TType>
     private PacketPool<TType> WithdrawPacket(TEnum type)
     {
 #if DEBUG
-        PacketPool<TType> instance = _pool[ToInt(type)]
+        return _pool[ToInt(type)]
             ?? throw new ArgumentException("Could not find given type in the packet pool manager!", nameof(type));
-
-        return instance;
 #else
         return _pool[ToInt(type)];
 #endif

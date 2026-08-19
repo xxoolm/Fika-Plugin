@@ -1,9 +1,11 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using EFT;
 using EFT.InventoryLogic;
+using EFT.NetworkPackets;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 
 namespace Fika.Core.Main.Factories;
 
@@ -12,14 +14,14 @@ namespace Fika.Core.Main.Factories;
 /// </summary>
 /// <param name="player">The <see cref="FikaPlayer"/> to initiate the controller on.</param>
 /// <param name="item">The <see cref="EFT.InventoryLogic.Item"/> to add to the controller.</param>
-internal class HandsControllerFactory(ObservedPlayer player, Item item = null, KnifeComponent knifeComponent = null)
+internal sealed class HandsControllerFactory(ObservedPlayer player, Item item = null, KnifeComponent knifeComponent = null)
 {
     public ObservedPlayer Player = player;
     public Item Item = item;
     public KnifeComponent KnifeComponent = knifeComponent;
-    public MedsItemClass MedsItem;
-    public FoodDrinkItemClass FoodItem;
-    public GStruct382<EBodyPart> BodyParts;
+    public Meds MedsItem;
+    public FoodDrink FoodItem;
+    public OneAndList<EBodyPart> BodyParts;
     public float Amount;
     public int AnimationVariant;
 
@@ -34,7 +36,7 @@ internal class HandsControllerFactory(ObservedPlayer player, Item item = null, K
             return ObservedFirearmController.Create(Player, weapon);
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"HandsControllerFactory::CreateObservedFirearmController: item was not of type Weapon, was: {Item.GetType()}");
+        FikaGlobals.LogError($"item was not of type Weapon, was: {Item.GetType()}");
         return null;
     }
 
@@ -44,12 +46,12 @@ internal class HandsControllerFactory(ObservedPlayer player, Item item = null, K
     /// <returns>A new <see cref="ObservedGrenadeController"/> or null if the action failed.</returns>
     public Player.GrenadeHandsController CreateObservedGrenadeController()
     {
-        if (Item is ThrowWeapItemClass grenade)
+        if (Item is ThrowWeap grenade)
         {
             return ObservedGrenadeController.Create(Player, grenade);
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"HandsControllerFactory::CoopObservedGrenadeController: item was not of type GrenadeClass, was: {Item.GetType()}");
+        FikaGlobals.LogError($"item was not of type GrenadeClass, was: {Item.GetType()}");
         return null;
     }
 
@@ -59,12 +61,12 @@ internal class HandsControllerFactory(ObservedPlayer player, Item item = null, K
     /// <returns>A new <see cref="ObservedQuickGrenadeController"/> or null if the action failed.</returns>
     public Player.QuickGrenadeThrowHandsController CreateObservedQuickGrenadeController()
     {
-        if (Item is ThrowWeapItemClass grenade)
+        if (Item is ThrowWeap grenade)
         {
             return ObservedQuickGrenadeController.Create(Player, grenade);
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"HandsControllerFactory::CreateObservedQuickGrenadeController: item was not of type GrenadeClass, was: {Item.GetType()}");
+        FikaGlobals.LogError($"item was not of type GrenadeClass, was: {Item.GetType()}");
         return null;
     }
 
@@ -79,7 +81,7 @@ internal class HandsControllerFactory(ObservedPlayer player, Item item = null, K
             return ObservedKnifeController.Create(Player, KnifeComponent);
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"HandsControllerFactory::CoopObservedKnifeController: knifeComponent was null!");
+        FikaGlobals.LogError("knifeComponent was null!");
         return null;
     }
 
@@ -98,7 +100,7 @@ internal class HandsControllerFactory(ObservedPlayer player, Item item = null, K
             return ObservedMedsController.Create(Player, MedsItem, BodyParts, 1f, AnimationVariant);
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"HandsControllerFactory::CreateObservedMedsController: meds or food was null!");
+        FikaGlobals.LogError("meds or food was null!");
         return null;
     }
 }

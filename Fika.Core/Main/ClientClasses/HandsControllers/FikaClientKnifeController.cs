@@ -1,21 +1,28 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
+using Comfort.Common;
+using EFT;
+using EFT.Ballistics;
 using EFT.InventoryLogic;
+using EFT.NetworkPackets;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
+using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.FirearmController;
 using Fika.Core.Networking.Packets.FirearmController.SubPackets;
+using Fika.Core.Networking.Packets.World;
+using KnifePacket = Fika.Core.Networking.Packets.FirearmController.SubPackets.KnifePacket;
 
 namespace Fika.Core.Main.ClientClasses.HandsControllers;
 
-public class FikaClientKnifeController : EFT.Player.KnifeController
+public class FikaClientKnifeController : Player.KnifeController
 {
     protected FikaPlayer _fikaPlayer;
     private WeaponPacket _packet;
 
     public static FikaClientKnifeController Create(FikaPlayer player, KnifeComponent item)
     {
-        FikaClientKnifeController controller = smethod_9<FikaClientKnifeController>(player, item);
+        var controller = CreateController<FikaClientKnifeController>(player, item);
         controller._fikaPlayer = player;
         controller._packet = new()
         {
@@ -57,7 +64,7 @@ public class FikaClientKnifeController : EFT.Player.KnifeController
 
     public override bool MakeKnifeKick()
     {
-        bool knifeKick = base.MakeKnifeKick();
+        var knifeKick = base.MakeKnifeKick();
 
         if (knifeKick)
         {
@@ -71,7 +78,7 @@ public class FikaClientKnifeController : EFT.Player.KnifeController
 
     public override bool MakeAlternativeKick()
     {
-        bool alternateKnifeKick = base.MakeAlternativeKick();
+        var alternateKnifeKick = base.MakeAlternativeKick();
 
         if (alternateKnifeKick)
         {
@@ -90,5 +97,30 @@ public class FikaClientKnifeController : EFT.Player.KnifeController
         _packet.Type = EFirearmSubPacketType.Knife;
         _packet.SubPacket = KnifePacket.FromValue(false, false, false, true);
         _fikaPlayer.PacketSender.NetworkManager.SendNetReusable(ref _packet, DeliveryMethod.ReliableOrdered, true);
+    }
+
+    public override PlayerHitInfo ProcessHit(Player.KnifeRaycastHit hit, BallisticCollider ballisticCollider)
+    {
+        if (FikaBackendUtils.IsServer)
+        {
+            return base.ProcessHit(hit, ballisticCollider);
+        }
+
+        var shotInfo = base.ProcessHit(hit, ballisticCollider);
+        if (ballisticCollider == null || ballisticCollider.HitType == EHitType.Default)
+        {
+            return shotInfo;
+        }
+
+        var packet = new KnifeHitPacket
+        {
+            NetId = _fikaPlayer.NetId,
+            HitType = ballisticCollider.HitType,
+            HitId = ballisticCollider.NetId,
+            HitPoint = hit.point
+        };
+        Singleton<FikaClient>.Instance.SendData(ref packet, DeliveryMethod.ReliableOrdered);
+
+        return shotInfo;
     }
 }

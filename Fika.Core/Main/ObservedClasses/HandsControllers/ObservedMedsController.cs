@@ -1,18 +1,25 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
-using EFT;
-using EFT.InventoryLogic;
-using Fika.Core.Main.Players;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
+using EFT;
+using EFT.HealthSystem;
+using EFT.InventoryLogic;
+using EFT.NetworkPackets;
+using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 
 namespace Fika.Core.Main.ObservedClasses.HandsControllers;
 
-internal class ObservedMedsController : Player.MedsController
+internal sealed class ObservedMedsController : Player.MedsController
 {
     private FikaPlayer _fikaPlayer;
-    private GStruct382<EBodyPart> _healParts;
+    private int _animation;
+
+    private readonly static FieldInfo _onOutUseActionField = typeof(Player.MedsController)
+        .GetField("_onOutUseEvent", BindingFlags.NonPublic | BindingFlags.Instance);
 
     private ObservedMedsOperation ObservedOperation
     {
@@ -22,19 +29,22 @@ internal class ObservedMedsController : Player.MedsController
         }
     }
 
-    public static ObservedMedsController Create(FikaPlayer player, Item item, GStruct382<EBodyPart> bodyParts, float amount, int animationVariant)
+    public static ObservedMedsController Create(FikaPlayer player, Item item, OneAndList<EBodyPart> bodyParts, float amount, int animationVariant)
     {
-        ObservedMedsController controller = smethod_6<ObservedMedsController>(player, item, bodyParts, amount, animationVariant);
+        var controller = CreateController<ObservedMedsController>(player, item, bodyParts, amount, animationVariant);
+        var action = (Action)_onOutUseActionField.GetValue(controller);
+        _onOutUseActionField.SetValue(controller, FikaGlobals.ClearDelegates(action));
         controller._fikaPlayer = player;
-        controller._healParts = bodyParts;
+        controller._animation = animationVariant;
         return controller;
     }
 
     public override Dictionary<Type, OperationFactoryDelegate> GetOperationFactoryDelegates()
     {
-        return new Dictionary<Type, OperationFactoryDelegate> {
+        return new Dictionary<Type, OperationFactoryDelegate>
+        {
             {
-                typeof(ObservedMedsControllerClass),
+                typeof(MedsInHandsOperation),
                 new OperationFactoryDelegate(GetObservedMedsOperation)
             },
             {
@@ -87,7 +97,7 @@ internal class ObservedMedsController : Player.MedsController
         ObservedOperation.HideObservedWeapon();
     }
 
-    private Player.BaseAnimationOperationClass GetObservedMedsOperation()
+    private Player.ObjectInHandsOperation GetObservedMedsOperation()
     {
         return new ObservedMedsOperation(this);
     }
@@ -117,7 +127,7 @@ internal class ObservedMedsController : Player.MedsController
         ObservedOperation.HideObservedWeaponComplete();
     }
 
-    private class ObservedMedsOperation(Player.MedsController controller) : ObservedMedsControllerClass(controller)
+    private sealed class ObservedMedsOperation(Player.MedsController controller) : Player.MedsController.MedsInHandsOperation(controller)
     {
         private readonly ObservedMedsController _observedMedsController = (ObservedMedsController)controller;
         private int _animation;
@@ -127,16 +137,10 @@ internal class ObservedMedsController : Player.MedsController
         {
             State = Player.EOperationState.Executing;
             SetLeftStanceAnimOnStartOperation();
-            callback();
-            if (_observedMedsController.Item.TryGetItemComponent(out AnimationVariantsComponent animationVariantsComponent))
-            {
-                _animation = UnityEngine.Random.Range(0, animationVariantsComponent.VariantsNumber);
-            }
-            else
-            {
-                _animation = 0;
-            }
-            _observedMedsController.FirearmsAnimator.SetActiveParam(true, false);
+            callback?.Invoke();
+            _animation = _observedMedsController._animation;
+            ObservedMedsController_OnOutUseEvent();
+            _observedMedsController.FirearmsAnimator.SetAnimationVariant(_animation);
             _observedMedsController._fikaPlayer.HealthController.EffectRemovedEvent += HealthController_EffectRemovedEvent;
             _observedMedsController.OnOutUseEvent += ObservedMedsController_OnOutUseEvent;
         }
@@ -150,10 +154,10 @@ internal class ObservedMedsController : Player.MedsController
             }
         }
 
-        public void HealthController_EffectRemovedEvent(IEffect effect)
+        public void HealthController_EffectRemovedEvent(IHealthEffect effect)
         {
             // Look for GClass increments
-            if (effect is not GInterface376)
+            if (effect is not IMedEffect)
             {
                 return;
             }
@@ -170,25 +174,24 @@ internal class ObservedMedsController : Player.MedsController
 
             if (_observedMedsController.FirearmsAnimator != null)
             {
-                FirearmsAnimator animator = _observedMedsController.FirearmsAnimator;
+                var animator = _observedMedsController.FirearmsAnimator;
 
-                animator.SetActiveParam(false, false);
                 if (animator.HasNextLimb())
                 {
+                    animator.SetActiveParam(false, false);
                     animator.SetNextLimb(true);
                 }
 
-                float mult = _observedMedsController._fikaPlayer.Skills.SurgerySpeed.Value / 100f;
+                var mult = _observedMedsController._fikaPlayer.Skills.SurgerySpeed.Value / 100f;
                 animator.SetUseTimeMultiplier(1f + mult);
 
-                int variant = 0;
                 _animation++;
+                var variant = 0;
                 if (_observedMedsController.Item.TryGetItemComponent(out AnimationVariantsComponent animationVariantsComponent))
                 {
                     variant = animationVariantsComponent.VariantsNumber;
                 }
-                int newAnim = (int)Mathf.Repeat(_animation, variant);
-
+                var newAnim = (int)Mathf.Repeat(_animation, variant);
                 animator.SetAnimationVariant(newAnim);
             }
         }

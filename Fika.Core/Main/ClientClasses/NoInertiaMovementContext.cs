@@ -1,6 +1,6 @@
-﻿using Comfort.Common;
+﻿using System;
+using Comfort.Common;
 using EFT;
-using System;
 
 namespace Fika.Core.Main.ClientClasses;
 
@@ -11,7 +11,7 @@ public class NoInertiaMovementContext : ClientMovementContext
 {
     public new static NoInertiaMovementContext Create(Player player, Func<IAnimator> animatorGetter, Func<ICharacterController> characterControllerGetter, LayerMask groundMask)
     {
-        NoInertiaMovementContext movementContext = Create<NoInertiaMovementContext>(player, animatorGetter, characterControllerGetter, groundMask);
+        var movementContext = Create<NoInertiaMovementContext>(player, animatorGetter, characterControllerGetter, groundMask);
         return movementContext;
     }
 
@@ -33,7 +33,7 @@ public class NoInertiaMovementContext : ClientMovementContext
             _player.ProceduralWeaponAnimation.WeaponFlipSpeed = InertiaSettings.WeaponFlipSpeed.Evaluate(_player.Physical.Inertia);
         }
         UpdateCovertEfficiency(_player.MovementContext.ClampedSpeed, true);
-        _player.HealthController.FallSafeHeight = Mathf.Lerp(Singleton<BackendConfigSettingsClass>.Instance.Health.Falling.SafeHeight, Singleton<BackendConfigSettingsClass>.Instance.Stamina.SafeHeightOverweight, _player.Physical.Overweight);
+        _player.HealthController.FallSafeHeight = Mathf.Lerp(Singleton<GlobalConfiguration>.Instance.Health.Falling.SafeHeight, Singleton<GlobalConfiguration>.Instance.Stamina.SafeHeightOverweight, _player.Physical.Overweight);
         PlayerAnimatorTransitionSpeed = TransitionSpeed;
         if (PoseLevel > _player.Physical.MaxPoseLevel && CurrentState is MovementState movementState)
         {
@@ -43,7 +43,7 @@ public class NoInertiaMovementContext : ClientMovementContext
         {
             _player.PoseMemo = _player.Physical.MaxPoseLevel;
         }
-        float walkSpeedLimit = _player.Physical.WalkSpeedLimit;
+        var walkSpeedLimit = _player.Physical.WalkSpeedLimit;
         RemoveStateSpeedLimit(Player.ESpeedLimit.Weight);
         if (walkSpeedLimit < 1f)
         {

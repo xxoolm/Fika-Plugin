@@ -1,14 +1,23 @@
-﻿#if DEBUG
-using Fika.Core.Main.Utils;
-using System.Diagnostics;
-#endif
-using Fika.Core.Networking.LZ4;
+﻿using BitPacking;
+using EFT.Vehicle;
 using System;
+using System.Net;
+using System.Net.Sockets;
+using Fika.Core.Networking.LZ4;
 
 namespace Fika.Core.Networking;
 
 public static class NetworkUtils
 {
+    public static IBitReaderStream EventDataReader { get; private set; } = new BitReaderStream(new byte[16_384]);
+    public static IBitWriterStream EventDataWriter { get; private set; } = new BitWriterStream(new byte[10_000]);
+
+    internal static void ResetReaderAndWriter()
+    {
+        EventDataReader = new BitReaderStream(new byte[16_384]);
+        EventDataWriter = new BitWriterStream(new byte[10_000]);
+    }
+
     /// <summary>
     /// Compresses the given byte array using LZ4 compression
     /// </summary>
@@ -16,30 +25,10 @@ public static class NetworkUtils
     /// <returns>The compressed byte array</returns>
     public static ReadOnlySpan<byte> CompressBytes(byte[] input)
     {
-#if DEBUG
-        Stopwatch sw = Stopwatch.StartNew();
-#endif
+        var buffer = new byte[LZ4Codec.MaximumOutputSize(input.Length)];
+        var encoded = LZ4Codec.Encode(input, 0, input.Length, buffer, 0, buffer.Length, LZ4Level.L04_HC);
 
-        byte[] buffer = new byte[LZ4Codec.MaximumOutputSize(input.Length)];
-        int encoded = LZ4Codec.Encode(input, 0, input.Length, buffer, 0, buffer.Length, LZ4Level.L04_HC);
-
-#if DEBUG
-        sw.Stop();
-        double compressionRate = 100.0 * (1.0 - (encoded / (double)input.Length));
-        FikaGlobals.LogWarning($"Compression reduced size by {compressionRate:F2}%, took {sw.Elapsed.TotalMilliseconds:F2} ms");
-#endif
-
-        // Return exact compressed data slice without extra ToArray allocation
-        if (encoded == buffer.Length)
-        {
-            // Compressed data fills buffer completely, just return it
-            return buffer;
-        }
-        else
-        {
-            // Create trimmed array from buffer span
-            return buffer.AsSpan(0, encoded).ToArray();
-        }
+        return buffer.AsSpan(0, encoded);
     }
 
     /// <summary>
@@ -50,21 +39,12 @@ public static class NetworkUtils
     /// <returns>The decompressed byte array</returns>
     public static byte[] DecompressBytes(byte[] compressedData, int originalLength)
     {
-#if DEBUG
-        Stopwatch sw = Stopwatch.StartNew();
-#endif
-        byte[] result = new byte[originalLength];
-        int decoded = LZ4Codec.Decode(compressedData, 0, compressedData.Length, result, 0, originalLength);
+        var result = new byte[originalLength];
+        var decoded = LZ4Codec.Decode(compressedData, 0, compressedData.Length, result, 0, originalLength);
         if (decoded != originalLength)
         {
             throw new InvalidOperationException("LZ4 decompression failed: length mismatch.");
         }
-
-#if DEBUG
-        sw.Stop();
-        double reverseRate = 100.0 * ((originalLength - compressedData.Length) / (double)compressedData.Length);
-        FikaGlobals.LogWarning($"Original is {reverseRate:F2}% larger than compressed, took {sw.Elapsed.TotalMilliseconds:F2} ms");
-#endif
 
         return result;
     }
@@ -79,6 +59,108 @@ public static class NetworkUtils
     }
 
     /// <summary>
+    /// Validates whether the given IP string represents a connectable, routable IP address.
+    /// </summary>
+    /// <param name="ip">The IP address string to validate (IPv4 or IPv6).</param>
+    /// <returns>
+    /// <see langword="true"/> if the IP is valid and suitable for advertising or binding; <see langword="false"/> otherwise.
+    /// </returns>
+    /// <remarks>
+    /// Validation rules applied:
+    /// <list type="bullet">
+    ///   <item><description>Null, empty, or whitespace strings are rejected.</description></item>
+    ///   <item><description>IPv6 scope identifiers (e.g., fe80::1%12) are removed before validation.</description></item>
+    ///   <item><description>Unspecified addresses (<c>0.0.0.0</c> or <c>::</c>) are rejected.</description></item>
+    ///   <item><description>Loopback addresses (<c>127.0.0.1</c> or <c>::1</c>) are rejected.</description></item>
+    ///   <item><description>IPv4 APIPA addresses (169.254.x.x) are rejected.</description></item>
+    ///   <item><description>IPv4 multicast and reserved addresses (224.0.0.0 and above) are rejected.</description></item>
+    ///   <item><description>IPv6 link-local, site-local, and multicast addresses are rejected.</description></item>
+    ///   <item><description>IPv6 addresses must be global unicast (2000::/3) to be accepted.</description></item>
+    /// </list>
+    /// </remarks>
+    public static bool ValidateIP(string ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+        {
+            return false;
+        }
+
+        // Remove IPv6 scope ID if present (fe80::1%12)
+        var percentIndex = ip.IndexOf('%');
+        if (percentIndex >= 0)
+        {
+            ip = ip[..percentIndex];
+        }
+
+        if (!IPAddress.TryParse(ip, out var address))
+        {
+            return false;
+        }
+
+        // Reject unspecified
+        if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+        {
+            return false;
+        }
+
+        // Reject loopback
+        if (IPAddress.IsLoopback(address))
+        {
+            return false;
+        }
+
+        switch (address.AddressFamily)
+        {
+            case AddressFamily.InterNetwork:
+                {
+                    var b = address.GetAddressBytes();
+
+                    // APIPA 169.254.0.0/16
+                    if (b[0] == 169 && b[1] == 254)
+                    {
+                        return false;
+                    }
+
+                    // Multicast / reserved (224+)
+                    if (b[0] >= 224)
+                    {
+                        return false;
+                    }
+
+                    return true;
+                }
+
+            case AddressFamily.InterNetworkV6:
+                {
+                    // Link-local, site-local, multicast
+                    if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast)
+                    {
+                        return false;
+                    }
+
+                    // Global unicast must be in 2000::/3
+                    var b = address.GetAddressBytes();
+                    return (b[0] & 0b1110_0000) == 0b0010_0000;
+                }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves a remote address from a string IP or hostname and port.
+    /// </summary>
+    /// <param name="ip">The IP address or hostname.</param>
+    /// <param name="port">The port number.</param>
+    /// <returns>The resolved <see cref="IPEndPoint"/>.</returns>
+    /// <exception cref="ParseException">Thrown if the address cannot be resolved.</exception>
+    public static IPEndPoint ResolveRemoteAddress(string ip, int port)
+    {
+        var resolved = NetUtils.ResolveAddress(ip);
+        return new IPEndPoint(resolved, port);
+    }
+
+    /// <summary>
     /// Used to determine what kind of packet was received on the <see cref="IFikaNetworkManager"/>
     /// </summary>
     public enum EPacketType : byte
@@ -88,11 +170,11 @@ public static class NetworkUtils
         /// </summary>
         Serializable,
         /// <summary>
-        /// A raw <see cref="Packets.Player.PlayerStatePacket"/>
+        /// A raw <see cref="Packets.Player.PlayerStateData"/>
         /// </summary>
         PlayerState,
         /// <summary>
-        /// A raw <see cref="BTRDataPacketStruct"/>
+        /// A raw <see cref="ShapshotBTRMessage"/>
         /// </summary>
         BTR,
         /// <summary>

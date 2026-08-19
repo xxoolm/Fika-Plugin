@@ -4,7 +4,7 @@ using Fika.Core.Main.Players;
 
 namespace Fika.Core.Main.BotClasses;
 
-public class BotFirearmController : FikaClientFirearmController
+public sealed class BotFirearmController : FikaClientFirearmController
 {
     public override Vector3 WeaponDirection
     {
@@ -16,7 +16,7 @@ public class BotFirearmController : FikaClientFirearmController
 
     public static BotFirearmController Create(FikaBot player, Weapon weapon)
     {
-        BotFirearmController controller = smethod_6<BotFirearmController>(player, weapon);
+        var controller = CreateController<BotFirearmController>(player, weapon);
         controller._fikaPlayer = player;
         controller._packet = new()
         {

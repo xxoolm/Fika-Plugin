@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.Serialization;
+using Fika.Core.Main.Utils;
 
 namespace Fika.Core.Networking.Models;
 
@@ -48,12 +49,30 @@ public struct ClientConfigModel
     [DataMember(Name = "allowNamePlates")]
     public bool AllowNamePlates { get; set; }
 
+    [DataMember(Name = "randomLabyrinthSpawns")]
+    public bool RandomLabyrinthSpawns { get; set; }
+
+    [DataMember(Name = "pmcFoundInRaid")]
+    public bool PMCFoundInRaid { get; set; }
+
+    [DataMember(Name = "allowSpectateBots")]
+    public bool AllowSpectateBots { get; set; }
+
+    [DataMember(Name = "instantLoad")]
+    public bool InstantLoad { get; set; }
+
+    [DataMember(Name = "fastLoad")]
+    public bool FastLoad { get; set; }
+
+    [DataMember(Name = "reviveConfig")]
+    public ClientReviveConfig ReviveConfig { get; set; }
+
     public readonly void LogValues()
     {
-        FikaPlugin.Instance.FikaLogger.LogInfo("Received config from server:");
-        foreach (var field in typeof(ClientConfigModel).GetFields())
+        FikaGlobals.LogInfo("Received config from server:");
+        foreach (var property in typeof(ClientConfigModel).GetProperties())
         {
-            var value = field.GetValue(this);
+            var value = property.GetValue(this);
             if (value is Array valueArray)
             {
                 var values = "";
@@ -64,12 +83,68 @@ public struct ClientConfigModel
                         values = valueArray.GetValue(i).ToString();
                         continue;
                     }
-                    values = values + ", " + valueArray.GetValue(i).ToString();
+                    values = values + ", " + valueArray.GetValue(i);
                 }
-                FikaPlugin.Instance.FikaLogger.LogInfo(field.Name + ": " + values);
+                FikaGlobals.LogInfo($"[Config] {property.Name}: {values}");
                 continue;
             }
-            FikaPlugin.Instance.FikaLogger.LogInfo(field.Name + ": " + value);
+
+            if (value is ClientReviveConfig reviveConfig)
+            {
+                reviveConfig.LogValues();
+                continue;
+            }
+
+            FikaGlobals.LogInfo($"[Config] {property.Name}: {value}");
+        }
+    }
+}
+
+public struct ClientReviveConfig
+{
+    [DataMember(Name = "enabled")]
+    public bool Enabled { get; set; }
+
+    [DataMember(Name = "headshotKills")]
+    public bool HeadshotKills { get; set; }
+
+    [DataMember(Name = "grenadesKills")]
+    public bool GrenadesKills { get; set; }
+
+    [DataMember(Name = "allowLooting")]
+    public bool AllowLooting { get; set; }
+
+    [DataMember(Name = "maxRevives")]
+    public int MaxRevives { get; set; }
+
+    [DataMember(Name = "bleedoutTime")]
+    public float BleedoutTime { get; set; }
+
+    [DataMember(Name = "reviveTime")]
+    public float ReviveTime { get; set; }
+
+    public readonly void LogValues()
+    {
+        foreach (var property in typeof(ClientReviveConfig).GetProperties())
+        {
+            var value = property.GetValue(this);
+            if (value is Array valueArray)
+            {
+                var values = "";
+                for (var i = 0; i < valueArray.Length; i++)
+                {
+                    if (i == 0)
+                    {
+                        values = valueArray.GetValue(i).ToString();
+                        continue;
+                    }
+                    values = values + ", " + valueArray.GetValue(i);
+                }
+                FikaGlobals.LogInfo($"[ReviveConfig] {property.Name}: {values}");
+                continue;
+            }
+
+            FikaGlobals.LogInfo($"[ReviveConfig] {property.Name}: {value}");
         }
     }
 }

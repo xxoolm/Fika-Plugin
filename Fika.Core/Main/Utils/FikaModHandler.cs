@@ -1,4 +1,8 @@
-﻿using BepInEx;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Logging;
 using Comfort.Common;
@@ -10,10 +14,6 @@ using Newtonsoft.Json;
 using SPT.Common.Http;
 using SPT.Custom.Utils;
 using SPT.Reflection.Patching;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.Utils;
 
@@ -32,7 +32,7 @@ public class FikaModHandler
 
     public FikaModHandler()
     {
-        Chainloader.PluginInfos.TryGetValue("com.SPT.core", out PluginInfo pluginInfo);
+        Chainloader.PluginInfos.TryGetValue("com.SPT.core", out var pluginInfo);
         SPTCoreVersion = pluginInfo.Metadata.Version;
     }
 
@@ -43,11 +43,11 @@ public class FikaModHandler
         // Set capacity to avoid unnecessarily resizing for people who have a lot of mods loaded
         Dictionary<string, uint> loadedMods = new(pluginInfos.Length);
 
-        foreach (PluginInfo pluginInfo in pluginInfos)
+        foreach (var pluginInfo in pluginInfos)
         {
-            string location = pluginInfo.Location;
-            byte[] fileBytes = File.ReadAllBytes(location);
-            uint crc32 = CRC32C.Compute(fileBytes, 0, fileBytes.Length);
+            var location = pluginInfo.Location;
+            var fileBytes = File.ReadAllBytes(location);
+            var crc32 = CRC32C.Compute(fileBytes, 0, fileBytes.Length);
             loadedMods.Add(pluginInfo.Metadata.GUID, crc32);
             _logger.LogInfo($"Loaded plugin: [{pluginInfo.Metadata.Name}] with GUID [{pluginInfo.Metadata.GUID}] and crc32 [{crc32}]");
             if (pluginInfo.Metadata.GUID == "com.fika.core")
@@ -58,23 +58,23 @@ public class FikaModHandler
             CheckSpecialMods(pluginInfo.Metadata.GUID);
         }
 
-        string modValidationRequestJson = JsonConvert.SerializeObject(loadedMods);
+        var modValidationRequestJson = JsonConvert.SerializeObject(loadedMods);
         _logger.LogDebug(modValidationRequestJson);
 
-        string validationJson = RequestHandler.PostJson("/fika/client/check/mods", modValidationRequestJson);
+        var validationJson = RequestHandler.PostJson("/fika/client/check/mods", modValidationRequestJson);
         _logger.LogDebug(validationJson);
 
-        ModValidationResponse validationResult = JsonConvert.DeserializeObject<ModValidationResponse>(validationJson);
+        var validationResult = JsonConvert.DeserializeObject<ModValidationResponse>(validationJson);
         if (validationResult.Forbidden == null || validationResult.MissingRequired == null || validationResult.HashMismatch == null)
         {
-            FikaPlugin.Instance.FikaLogger.LogError("FikaModHandler::VerifyMods: Response was invalid!");
+            FikaGlobals.LogError("FikaModHandler::VerifyMods: Response was invalid!");
             MessageBoxHelper.Show("Failed to verify mods with server.\nMake sure that the server mod is installed!", "FIKA ERROR", MessageBoxHelper.MessageBoxType.OK);
             AsyncWorker.RunInMainTread(Application.Quit);
             return;
         }
 
         // If any errors were detected we will print what has happened
-        bool installationError =
+        var installationError =
             validationResult.Forbidden.Length > 0 ||
             validationResult.MissingRequired.Length > 0 ||
             validationResult.HashMismatch.Length > 0;
@@ -110,7 +110,7 @@ public class FikaModHandler
         if (!UIFixesLoaded)
         {
             _logger.LogInfo("UI Fixes is not loaded, enabling PartyInfoPanel fix");
-            manager.EnablePatch(new PartyInfoPanel_method_3_Patch());
+            manager.EnablePatch(new PartyInfoPanel_CG_method_3_Patch());
         }
 
         return Task.CompletedTask;
@@ -131,7 +131,7 @@ public class FikaModHandler
         const string message = "Your client doesn't meet server requirements, check logs for more details";
 
         // -1f time makes the message permanent
-        GClass3835 errorScreen = Singleton<PreloaderUI>.Instance.ShowCriticalErrorScreen("INSTALLATION ERROR", message,
+        var errorScreen = Singleton<PreloaderUI>.Instance.ShowCriticalErrorScreen("INSTALLATION ERROR", message,
             ErrorScreen.EButtonType.QuitButton, -1f);
 
         Action quitAction = Application.Quit;
@@ -139,6 +139,12 @@ public class FikaModHandler
         errorScreen.OnDecline += quitAction;
         errorScreen.OnClose += quitAction;
         errorScreen.OnCloseSilent += quitAction;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15));
+            AsyncWorker.RunInMainTread(Application.Quit);
+        });
     }
 
     private void CheckSpecialMods(string key)
@@ -155,7 +161,7 @@ public class FikaModHandler
                     SAINLoaded = true;
                     break;
                 }
-            case "Tyfon.UIFixes":
+            case "com.tyfon.uifixes":
                 {
                     UIFixesLoaded = true;
                     break;

@@ -8,11 +8,11 @@ namespace Fika.Core.Main.Components;
 public class FikaTimeManager : MonoBehaviour
 {
     public CoopGame CoopGame;
-    public GameTimerClass GameTimer;
+    public GameTimer GameTimer;
 
     public static FikaTimeManager Create(CoopGame game)
     {
-        FikaTimeManager timeManager = game.gameObject.AddComponent<FikaTimeManager>();
+        var timeManager = game.gameObject.AddComponent<FikaTimeManager>();
         timeManager.CoopGame = game;
         timeManager.GameTimer = game.GameTimer;
         return timeManager;
@@ -23,7 +23,7 @@ public class FikaTimeManager : MonoBehaviour
         if (CoopGame.Status == GameStatus.Started && GameTimer != null && GameTimer.SessionTime != null && GameTimer.PastTime >= GameTimer.SessionTime)
         {
             CoopGame.ExitStatus = ExitStatus.MissingInAction;
-            FikaPlayer fikaPlayer = (FikaPlayer)Singleton<GameWorld>.Instance.MainPlayer;
+            var fikaPlayer = (FikaPlayer)Singleton<GameWorld>.Instance.MainPlayer;
             CoopGame.Extract(fikaPlayer, null);
             enabled = false;
         }

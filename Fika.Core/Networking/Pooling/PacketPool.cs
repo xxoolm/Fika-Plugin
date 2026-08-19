@@ -34,7 +34,7 @@ public class PacketPool<T> : IDisposable
     {
         _pool = new Stack<T>(size);
         _constructor = constructor;
-        for (int i = 0; i < size; i++)
+        for (var i = 0; i < size; i++)
         {
             _pool.Push(_constructor());
         }
@@ -47,21 +47,15 @@ public class PacketPool<T> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T Get()
     {
+        if (_pool.TryPop(out var item))
+        {
+            return item;
+        }
 #if DEBUG
-
-        if (_pool.Count > 0)
-        {
-            return _pool.Pop();
-        }
-        else
-        {
-            T packet = _constructor();
-            FikaGlobals.LogError($"[{packet.GetType().Name}] Tried to pop but none existed?");
-            return _constructor();
-        }
-#else
-        return _pool.Count > 0 ? _pool.Pop() : _constructor();
+        var concreteType = _constructor.Method.ReturnType;
+        FikaGlobals.LogError($"[{concreteType.Name}] Pool empty. Allocating new instance.");
 #endif
+        return _constructor();
     }
 
     /// <summary>

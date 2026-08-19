@@ -1,9 +1,11 @@
-﻿using Comfort.Common;
+﻿using EFT.Communications;
+using System.Reflection;
+using Comfort.Common;
 using EFT.UI;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
+using EFT;
 using SPT.Reflection.Patching;
-using System.Reflection;
 
 namespace Fika.Core.UI.Patches;
 
@@ -11,7 +13,7 @@ public class DisconnectButton_Patch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(MenuScreen).GetMethod(nameof(MenuScreen.method_11));
+        return typeof(MenuScreen).GetMethod(nameof(MenuScreen.CG_Awake1));
     }
 
     [PatchPrefix]
@@ -19,10 +21,10 @@ public class DisconnectButton_Patch : ModulePatch
     {
         if (FikaBackendUtils.IsServer)
         {
-            FikaServer server = Singleton<FikaServer>.Instance;
+            var server = Singleton<FikaServer>.Instance;
             if (server != null && server.NetServer.ConnectedPeersCount > 0)
             {
-                NotificationManagerClass.DisplayWarningNotification(string.Format(LocaleUtils.HOST_CANNOT_EXTRACT_MENU.Localized(),
+                NotificationManager.DisplayWarningNotification(string.Format(LocaleUtils.HOST_CANNOT_EXTRACT_MENU.Localized(),
                     server.NetServer.ConnectedPeersCount));
                 return false;
             }

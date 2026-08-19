@@ -1,17 +1,17 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using EFT;
 using Fika.Core.Main.Players;
 
 namespace Fika.Core.Main.ObservedClasses.HandsControllers;
 
-internal class ObservedEmptyHandsController : Player.EmptyHandsController
+internal sealed class ObservedEmptyHandsController : Player.EmptyHandsController
 {
     private ObservedPlayer _observedPlayer;
 
     public static ObservedEmptyHandsController Create(ObservedPlayer observedPlayer)
     {
-        var controller = smethod_6<ObservedEmptyHandsController>(observedPlayer);
+        var controller = CreateController<ObservedEmptyHandsController>(observedPlayer);
         controller._observedPlayer = observedPlayer;
         return controller;
     }

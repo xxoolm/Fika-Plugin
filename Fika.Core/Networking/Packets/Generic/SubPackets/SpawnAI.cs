@@ -1,5 +1,5 @@
 ﻿using Comfort.Common;
-using Fika.Core.Main.Components;
+using EFT;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
@@ -37,8 +37,15 @@ public sealed class SpawnAI : IPoolSubPacket
 
         if (coopHandler.Players.TryGetValue(NetId, out var playerToApply))
         {
+            if (playerToApply.Profile.Info.Settings.Role is WildSpawnType.shooterBTR)
+            {
 #if DEBUG
-            FikaGlobals.LogWarning($"[{NetId}] is ready, spawning at {Location}"); 
+                FikaGlobals.LogWarning($"[{NetId}] was shooterBTR, skipping");
+#endif
+                return;
+            }
+#if DEBUG
+            FikaGlobals.LogWarning($"[{NetId}] is ready, spawning at {Location}");
 #endif
             playerToApply.Teleport(Location);
         }

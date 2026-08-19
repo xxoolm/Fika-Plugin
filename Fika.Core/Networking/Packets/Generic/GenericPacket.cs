@@ -1,4 +1,4 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using Fika.Core.Networking.Pooling;
 
@@ -7,7 +7,7 @@ namespace Fika.Core.Networking.Packets.Generic;
 /// <summary>
 /// Packet used for many different things to reduce packet bloat
 /// </summary>
-public class GenericPacket : INetReusable
+public sealed class GenericPacket : INetReusable
 {
     public int NetId;
     public EGenericSubPacketType Type;

@@ -1,4 +1,6 @@
-﻿using Fika.Core.Main.Players;
+﻿using EFT;
+using EFT.Communications;
+using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
 using static Fika.Core.UI.FikaUIGlobals;
@@ -18,15 +20,15 @@ public sealed class ClientConnected : IPoolSubPacket
 
     public static ClientConnected FromValue(string name)
     {
-        ClientConnected packet = GenericSubPacketPoolManager.Instance.GetPacket<ClientConnected>(EGenericSubPacketType.ClientConnected);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<ClientConnected>(EGenericSubPacketType.ClientConnected);
         packet.Name = name;
         return packet;
     }
 
     public void Execute(FikaPlayer player = null)
     {
-        string message = string.Format(LocaleUtils.UI_PLAYER_CONNECTED.Localized(), ColorizeText(EColor.BLUE, Name));
-        NotificationManagerClass.DisplayMessageNotification(message);
+        var message = string.Format(LocaleUtils.UI_PLAYER_CONNECTED.Localized(), ColorizeText(EColor.BLUE, Name));
+        NotificationManager.DisplayMessageNotification(message);
     }
 
     public void Serialize(NetDataWriter writer)

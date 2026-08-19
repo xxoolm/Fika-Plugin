@@ -1,4 +1,16 @@
-﻿using BepInEx.Logging;
+﻿using Diz.Jobs;
+using EFT.Settings;
+using EFT.Settings.Sound;
+using JsonType;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+using BepInEx.Configuration;
+using BepInEx.Logging;
 using Comfort.Common;
 using EFT;
 using EFT.InputSystem;
@@ -8,12 +20,6 @@ using EFT.UI;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.Players;
 using HarmonyLib;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Net.Sockets;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 using static Fika.Core.FikaPlugin;
 using static Fika.Core.Networking.IFikaNetworkManager;
 
@@ -24,12 +30,22 @@ public static class FikaGlobals
     public const string TransitTraderId = "656f0f98d80a697f855d34b1";
     public const string TransitTraderName = "BTR";
     public const string DefaultTransitId = "66f5750951530ca5ae09876d";
+    public const string FikaGroupId = "Fika";
 
     public static int PingMask = LayerMask.GetMask(["HighPolyCollider", "Interactive", "Deadbody", "Player", "Loot", "Terrain"]);
 
+    /// <summary>
+    /// Use when no callback is needed to reduce allocations
+    /// </summary>
+    public static Callback EmptyCallbackDelegate => EmptyCallback;
+    /// <summary>
+    /// Use when no callback is needed to reduce allocations
+    /// </summary>
+    public static Action EmptyActionDelegate => EmptyAction;
+
     public const int PingRange = 1000;
 
-    private static readonly ManualLogSource _logger = BepInEx.Logging.Logger.CreateLogSource("FikaGlobals");
+    private static readonly ManualLogSource _logger = Logger.CreateLogSource("FikaGlobals");
 
     internal static readonly List<EInteraction> BlockedInteractions =
     [
@@ -47,7 +63,7 @@ public static class FikaGlobals
     {
         get
         {
-            return GClass2240.Instance;
+            return FullySearchedSearchController.Instance;
         }
     }
 
@@ -69,15 +85,15 @@ public static class FikaGlobals
 
     private static InputTree _inputTree;
 
-    public static VoipSettingsClass VOIPHandler
+    public static VoipSettings VOIPHandler
     {
         get
         {
             if (_voipHandler == null)
             {
-                _voipHandler = VoipSettingsClass.Default;
+                _voipHandler = VoipSettings.Default;
                 _voipHandler.VoipQualitySettings.Apply();
-                _voipHandler.MicrophoneChecked = SoundSettingsControllerClass.CheckMicrophone();
+                _voipHandler.MicrophoneChecked = SoundSettingsGroup.CheckMicrophone();
                 _voipHandler.VoipEnabled = true;
                 var pttSettings = _voipHandler.PushToTalkSettings;
                 pttSettings.SpeakingSecondsLimit = 20f;
@@ -100,7 +116,7 @@ public static class FikaGlobals
         }
     }
 
-    private static VoipSettingsClass _voipHandler;
+    private static VoipSettings _voipHandler;
 
     internal static float GetOtherPlayerSensitivity()
     {
@@ -109,12 +125,12 @@ public static class FikaGlobals
 
     internal static float GetLocalPlayerSensitivity()
     {
-        return Singleton<SharedGameSettingsClass>.Instance.Control.Settings.MouseSensitivity;
+        return Singleton<SettingsManager>.Instance.Control.Settings.MouseSensitivity;
     }
 
     internal static float GetLocalPlayerAimingSensitivity()
     {
-        return Singleton<SharedGameSettingsClass>.Instance.Control.Settings.MouseAimingSensitivity;
+        return Singleton<SettingsManager>.Instance.Control.Settings.MouseAimingSensitivity;
     }
 
     public static float GetApplicationTime()
@@ -137,7 +153,7 @@ public static class FikaGlobals
         return breaker.AvailableToSync;
     }
 
-    internal static Item GetLootItemPositionItem(LootItemPositionClass positionClass)
+    internal static Item GetLootItemPositionItem(JsonLootItem positionClass)
     {
         return positionClass.Item;
     }
@@ -149,7 +165,7 @@ public static class FikaGlobals
 
     internal static string FormatFileSize(long bytes)
     {
-        var unit = 1024;
+        const int unit = 1024;
         if (bytes < unit) { return $"{bytes} B"; }
 
         var exp = (int)(Math.Log(bytes) / Math.Log(unit));
@@ -168,8 +184,8 @@ public static class FikaGlobals
         {
             collection.AddRange(subItem.Template.AllResources);
         }
-        var loadTask = Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(PoolManagerClass.PoolsCategory.Raid, PoolManagerClass.AssemblyType.Online,
-            [.. collection], JobPriorityClass.Immediate, null, default);
+        var loadTask = Singleton<ObjectsFactory>.Instance.LoadBundlesAndCreatePools(ObjectsFactory.PoolsCategory.Raid, ObjectsFactory.AssemblyType.Online,
+            [.. collection], JobYieldPriority.Immediate, null, default);
 
         WaitForEndOfFrame waitForEndOfFrame = new();
         while (!loadTask.IsCompleted)
@@ -189,11 +205,11 @@ public static class FikaGlobals
     }
 
     /// <summary>
-    /// Forces the <see cref="InfoClass.MainProfileNickname"/> to be set on a profile
+    /// Forces the <see cref="ProfileInfo.MainProfileNickname"/> to be set on a profile
     /// </summary>
     /// <param name="infoClass"></param>
     /// <param name="nickname"></param>
-    public static void SetProfileNickname(this InfoClass infoClass, string nickname)
+    public static void SetProfileNickname(this ProfileInfo infoClass, string nickname)
     {
         Traverse.Create(infoClass).Field<string>("MainProfileNickname").Value = nickname;
     }
@@ -209,10 +225,10 @@ public static class FikaGlobals
     }
 
     /// <summary>
-    /// Gets the current <see cref="ISession"/>
+    /// Gets the current <see cref="IEftSession"/>
     /// </summary>
-    /// <returns><see cref="ISession"/> of the application</returns>
-    public static ISession GetSession()
+    /// <returns><see cref="IEftSession"/> of the application</returns>
+    public static IEftSession GetSession()
     {
         if (TarkovApplication.Exist(out var tarkovApplication))
         {
@@ -253,7 +269,7 @@ public static class FikaGlobals
     public static Profile GetLiteProfile(bool scav)
     {
         var profile = GetProfile(scav);
-        CompleteProfileDescriptorClass liteDescriptor = new(profile, SearchControllerSerializer)
+        ProfileDescriptor liteDescriptor = new(profile, SearchControllerSerializer)
         {
             Encyclopedia = [],
             InsuredItems = [],
@@ -266,8 +282,8 @@ public static class FikaGlobals
     /// Gets the states from a <see cref="TacticalComboVisualController"/>
     /// </summary>
     /// <param name="controller"></param>
-    /// <returns><see cref="FirearmLightStateStruct"/></returns>
-    public static FirearmLightStateStruct GetFirearmLightStates(TacticalComboVisualController controller)
+    /// <returns><see cref="LightsState"/></returns>
+    public static LightsState GetFirearmLightStates(TacticalComboVisualController controller)
     {
         return controller.LightMod.GetLightState(false, false);
     }
@@ -286,10 +302,10 @@ public static class FikaGlobals
     /// Gets a light states from a <see cref="LightComponent"/>
     /// </summary>
     /// <param name="component">The <see cref="LightComponent"/> to check</param>
-    /// <returns>A new <see cref="FirearmLightStateStruct"/> with data</returns>
-    public static FirearmLightStateStruct GetFirearmLightStatesFromComponent(LightComponent component)
+    /// <returns>A new <see cref="LightsState"/> with data</returns>
+    public static LightsState GetFirearmLightStatesFromComponent(LightComponent component)
     {
-        return new FirearmLightStateStruct
+        return new LightsState
         {
             Id = component.Item.Id,
             IsActive = component.IsActive,
@@ -304,7 +320,25 @@ public static class FikaGlobals
     /// <returns>True if in the player group</returns>
     public static bool IsGroupMember(this Player player)
     {
-        return player.GroupId == "Fika";
+        return string.Equals(player.GroupId, FikaGroupId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Unsubscribes all delegates from an <see cref="Action{T}"/>
+    /// </summary>
+    /// <param name="action"></param>
+    public static Action ClearDelegates(Action action)
+    {
+        var list = action.GetInvocationList();
+        for (var i = 0; i < list.Length; i++)
+        {
+#if DEBUG
+            LogWarning($"Clearing {list[i].Method.Name}");
+#endif
+            action = (Action)Delegate.Remove(action, list[i]);
+        }
+
+        return action;
     }
 
     /// <summary>
@@ -378,6 +412,11 @@ public static class FikaGlobals
         Instance.FikaLogger.LogError($"[{caller}]: {message}");
     }
 
+    public static void LogError(object obj, [CallerMemberName] string caller = "")
+    {
+        Instance.FikaLogger.LogError($"[{caller}]: {obj}");
+    }
+
     public static void LogFatal(string message, [CallerMemberName] string caller = "")
     {
         if (string.IsNullOrEmpty(message))
@@ -404,19 +443,130 @@ public static class FikaGlobals
 
     }
 
+    private static void EmptyCallback(IResult result)
+    {
+
+    }
+
     /// <summary>
     /// Converts the <see cref="ELoadPriority"/> to a delegate
     /// </summary>
     /// <param name="priority">The priority</param>
-    /// <returns>A new <see cref="GDelegate62"/> for <see cref="Components.CoopHandler.SpawnPlayer(Components.CoopHandler.SpawnObject)"/></returns>
-    public static GDelegate62 ToLoadPriorty(this ELoadPriority priority)
+    /// <returns>A new <see cref="YieldDelegate"/> for <see cref="Components.CoopHandler.SpawnPlayer(Components.CoopHandler.SpawnObject)"/></returns>
+    public static YieldDelegate ToLoadPriorty(this ELoadPriority priority)
     {
         return priority switch
         {
-            ELoadPriority.Low => JobPriorityClass.Low,
-            ELoadPriority.Medium => JobPriorityClass.General,
-            ELoadPriority.High => JobPriorityClass.Immediate,
-            _ => JobPriorityClass.Low,
+            ELoadPriority.Low => JobYieldPriority.Low,
+            ELoadPriority.Medium => JobYieldPriority.General,
+            ELoadPriority.High => JobYieldPriority.Immediate,
+            _ => JobYieldPriority.Low,
         };
+    }
+
+    /// <summary>
+    /// Migrates IL labels
+    /// </summary>
+    /// <param name="codes">List of instructions</param>
+    /// <param name="index">Index to start at</param>
+    /// <param name="count">Iterations</param>
+    public static void MigrateLabels(List<CodeInstruction> codes, int index, int count)
+    {
+        var targetIndex = index + count;
+
+        if (targetIndex < codes.Count)
+        {
+            var labelsToMove = new List<Label>();
+            for (var i = index; i < targetIndex; i++)
+            {
+                labelsToMove.AddRange(codes[i].labels);
+            }
+
+            codes[targetIndex].labels.AddRange(labelsToMove);
+        }
+    }
+
+    /// <summary>
+    /// Checks whether all modifiers are pressed for a <see cref="KeyboardShortcut"/>
+    /// </summary>
+    /// <param name="shortcut">The shortcut to check</param>
+    /// <returns><see langword="true"/> if all modifiers are pressed; <see langword="false"/> if not</returns>
+    public static bool AreModifiersPressed(KeyboardShortcut shortcut)
+    {
+        foreach (var key in shortcut.Modifiers)
+        {
+            if (!Input.GetKey(key))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Dynamically creates and compiles a high-performance getter delegate for a private instance field using Expression Trees.
+    /// </summary>
+    /// <typeparam name="T">The declaring <see cref="Type"/> of the class containing the field.</typeparam>
+    /// <typeparam name="TResult">The <see cref="Type"/> of the field value to retrieve.</typeparam>
+    /// <param name="fieldName">The exact case-sensitive name of the private field.</param>
+    /// <returns>A compiled <see cref="Func{T, TResult}"/> delegate that yields the field value when invoked.</returns>
+    /// <exception cref="NullReferenceException">Thrown when the specified <paramref name="fieldName"/> cannot be found via reflection.</exception>
+    public static Func<T, TResult> CreateGetter<T, TResult>(string fieldName)
+    {
+        var fieldInfo = typeof(T).GetField(fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        if (fieldInfo != null)
+        {
+            var targetParam = Expression.Parameter(typeof(T), "instance");
+            var fieldAccess = Expression.Field(targetParam, fieldInfo);
+
+            return Expression.Lambda<Func<T, TResult>>(fieldAccess, targetParam)
+                .Compile();
+        }
+        else
+        {
+            throw new NullReferenceException($"Failed to find private field [{fieldName}] in {typeof(T).Name}.");
+        }
+    }
+
+    /// <summary>
+    /// Dynamically creates and compiles a high-performance setter delegate for a private instance field using Expression Trees.
+    /// </summary>
+    /// <typeparam name="T">The declaring <see cref="Type"/> of the class containing the field.</typeparam>
+    /// <typeparam name="TResult">The <see cref="Type"/> of the field value to assign.</typeparam>
+    /// <param name="fieldName">The exact case-sensitive name of the private field.</param>
+    /// <returns>A compiled <see cref="Action{T, TResult}"/> delegate that assigns a new value to the field when invoked.</returns>
+    /// <exception cref="NullReferenceException">Thrown when the specified <paramref name="fieldName"/> cannot be found via reflection.</exception>
+    public static Action<T, TResult> CreateSetter<T, TResult>(string fieldName)
+    {
+        var fieldInfo = typeof(T).GetField(fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        if (fieldInfo != null)
+        {
+            var targetParam = Expression.Parameter(typeof(T), "instance");
+            var fieldAccess = Expression.Field(targetParam, fieldInfo);
+            var valueParam = Expression.Parameter(typeof(TResult), "value");
+            var assignExpr = Expression.Assign(fieldAccess, valueParam);
+
+            return Expression.Lambda<Action<T, TResult>>(assignExpr, targetParam, valueParam)
+                .Compile();
+        }
+        else
+        {
+            throw new NullReferenceException($"Failed to find private field [{fieldName}] in {typeof(T).Name}.");
+        }
+    }
+
+    /// <summary>
+    /// Checks whether the shot type is a misfire
+    /// </summary>
+    /// <returns><see langword="true"/> if the shot is a misfire; otherwise <see langword="false"/></returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsMisfire(this EShotType shotType)
+    {
+        return shotType >= EShotType.Misfire;
     }
 }

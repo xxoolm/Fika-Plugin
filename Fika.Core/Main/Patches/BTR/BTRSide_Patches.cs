@@ -1,10 +1,10 @@
-﻿using EFT;
+﻿using System;
+using System.Collections.Generic;
+using System.Reflection;
+using EFT;
 using EFT.Vehicle;
 using HarmonyLib;
 using SPT.Reflection.Patching;
-using System;
-using System.Collections.Generic;
-using System.Reflection;
 
 namespace Fika.Core.Main.Patches.BTR;
 
@@ -28,9 +28,9 @@ public class BTRSide_Patches
             }
 
             player.Transform.Original.parent = ____startPoint;
-            __instance.method_8(player);
+            __instance.ResetPlayerTransform(player);
             Passengers.Add(new ValueTuple<BTRSide, Player, int>(__instance, player, placeId));
-            __instance.method_9();
+            __instance.ApplyLocalPassenger();
             return false;
         }
     }
@@ -50,9 +50,9 @@ public class BTRSide_Patches
                 return true;
             }
 
-            for (int i = 0; i < Passengers.Count; i++)
+            for (var i = 0; i < Passengers.Count; i++)
             {
-                (BTRSide, Player, int) tuple = Passengers[i];
+                var tuple = Passengers[i];
                 if (tuple.Item2 == player)
                 {
                     Passengers.Remove(tuple);
@@ -64,19 +64,19 @@ public class BTRSide_Patches
         }
     }
 
-    public class BTRSide_method_9_Patch : ModulePatch
+    public class BTRSide_ApplyLocalPassenger_Patch : ModulePatch
     {
         protected override MethodBase GetTargetMethod()
         {
-            return typeof(BTRSide).GetMethod(nameof(BTRSide.method_9));
+            return typeof(BTRSide).GetMethod(nameof(BTRSide.ApplyLocalPassenger));
         }
 
         [PatchPrefix]
         public static void Prefix(BTRSide __instance, Transform ____startPoint)
         {
-            for (int i = 0; i < Passengers.Count; i++)
+            for (var i = 0; i < Passengers.Count; i++)
             {
-                (BTRSide, Player, int) tuple = Passengers[i];
+                var tuple = Passengers[i];
                 if (tuple.Item1 == __instance)
                 {
                     switch (tuple.Item2.BtrState)
@@ -85,16 +85,16 @@ public class BTRSide_Patches
                         case EPlayerBtrState.GoOut:
                             {
                                 tuple.Item2.Teleport(____startPoint.position);
-                                (Vector3 start, Vector3 target) = __instance.GoInPoints();
+                                (var start, var target) = __instance.GoInPoints();
                                 __instance.ApplyPlayerRotation(tuple.Item2.MovementContext, start, target);
                                 break;
                             }
                         case EPlayerBtrState.Inside:
                             {
-                                tuple.Item2.Teleport(__instance.method_11(tuple.Item3));
-                                (Vector3 start, Vector3 target) = __instance.GoInPoints();
+                                tuple.Item2.Teleport(__instance.PlacePosition(tuple.Item3));
+                                (var start, var target) = __instance.GoInPoints();
                                 __instance.ApplyPlayerRotation(tuple.Item2.MovementContext, start, target);
-                                float num = Mathf.Lerp(0f, 0.05f, Mathf.InverseLerp(0f, __instance.BtrView.MoveSpeed, __instance.BtrView.CurrentSpeed));
+                                var num = Mathf.Lerp(0f, 0.05f, Mathf.InverseLerp(0f, __instance.BtrView.MoveSpeed, __instance.BtrView.CurrentSpeed));
                                 if (num > Mathf.Epsilon)
                                 {
                                     tuple.Item2.ProceduralWeaponAnimation.ForceReact.HardShake(num);

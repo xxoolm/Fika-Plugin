@@ -1,11 +1,12 @@
-﻿using ComponentAce.Compression.Libs.zlib;
+﻿using System.Collections.Generic;
+using ComponentAce.Compression.Libs.zlib;
 using EFT;
 using EFT.Interactive;
-using System.Collections.Generic;
+using Fika.Core.Networking.Packets.Communication;
 
 namespace Fika.Core.Networking.Packets.World;
 
-public class ReconnectPacket : INetSerializable
+public sealed class ReconnectPacket : INetSerializable
 {
     public bool IsRequest;
     public bool InitialRequest;
@@ -13,13 +14,15 @@ public class ReconnectPacket : INetSerializable
 
     public string ProfileId;
     public Profile Profile;
-    public Profile.ProfileHealthClass ProfileHealthClass;
+    public Profile.HealthInfo ProfileHealthClass;
     public Vector3 PlayerPosition;
+    public Vector2 PlayerRotation;
 
-    public List<SmokeGrenadeDataPacketStruct> ThrowableData;
-    public List<WorldInteractiveObject.WorldInteractiveDataPacketStruct> InteractivesData;
+    public List<SmokeGrenadeNetworkData> ThrowableData;
+    public List<WorldInteractiveObject.InteractiveObjectStatusInfo> InteractivesData;
     public Dictionary<int, byte> LampStates;
     public Dictionary<int, Vector3> WindowBreakerStates;
+    public List<QuestSyncPacket> QuestSyncPackets;
 
     public void Deserialize(NetDataReader reader)
     {
@@ -45,11 +48,17 @@ public class ReconnectPacket : INetSerializable
                     break;
                 case EReconnectDataType.OwnCharacter:
                     Profile = reader.GetProfile();
-                    ProfileHealthClass = SimpleZlib.Decompress(reader.GetByteArray()).ParseJsonTo<Profile.ProfileHealthClass>();
+                    ProfileHealthClass = SimpleZlib.Decompress(reader.GetByteArray()).ParseJsonTo<Profile.HealthInfo>();
                     PlayerPosition = reader.GetUnmanaged<Vector3>();
+                    PlayerRotation = reader.GetUnmanaged<Vector2>();
                     break;
-                case EReconnectDataType.Finished:
-                default:
+                case EReconnectDataType.Quests:
+                    var count = reader.GetUShort();
+                    QuestSyncPackets = new List<QuestSyncPacket>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        QuestSyncPackets.Add(reader.Get<QuestSyncPacket>());
+                    }
                     break;
             }
         }
@@ -81,9 +90,15 @@ public class ReconnectPacket : INetSerializable
                     writer.PutProfile(Profile);
                     writer.PutByteArray(SimpleZlib.CompressToBytes(ProfileHealthClass.ToJson(), 4));
                     writer.PutUnmanaged(PlayerPosition);
+                    writer.PutUnmanaged(PlayerRotation);
                     break;
-                case EReconnectDataType.Finished:
-                default:
+                case EReconnectDataType.Quests:
+                    var count = QuestSyncPackets.Count;
+                    writer.Put((ushort)count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        writer.Put(QuestSyncPackets[i]);
+                    }
                     break;
             }
         }
@@ -96,6 +111,7 @@ public class ReconnectPacket : INetSerializable
         LampControllers,
         Windows,
         OwnCharacter,
+        Quests,
         Finished
     }
 }

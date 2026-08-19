@@ -20,7 +20,7 @@ public sealed class BtrSpawn : IPoolSubPacket
 
     public static BtrSpawn FromValue(Vector3 position, Quaternion rotation, string profileId)
     {
-        BtrSpawn packet = GenericSubPacketPoolManager.Instance.GetPacket<BtrSpawn>(EGenericSubPacketType.SpawnBTR);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<BtrSpawn>(EGenericSubPacketType.SpawnBTR);
         packet.Position = position;
         packet.Rotation = rotation;
         packet.PlayerProfileId = profileId;
@@ -30,7 +30,7 @@ public sealed class BtrSpawn : IPoolSubPacket
     public void Execute(FikaPlayer player = null)
     {
         FikaGlobals.LogInfo("Received BTR spawn event from server");
-        GlobalEventHandlerClass.CreateEvent<BtrSpawnOnThePathEvent>()
+        GlobalEventsController.CreateEvent<BtrSpawnOnThePathEvent>()
             .Invoke(Position, Rotation, PlayerProfileId);
     }
 

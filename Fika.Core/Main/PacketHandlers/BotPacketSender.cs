@@ -1,22 +1,21 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
+using System.Threading.Tasks;
 using Comfort.Common;
 using EFT;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.Player;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.PacketHandlers;
 
-public class BotPacketSender : MonoBehaviour, IPacketSender
+public sealed class BotPacketSender : MonoBehaviour, IPacketSender
 {
     public bool SendState { get; set; }
     public IFikaNetworkManager NetworkManager { get; set; }
 
     private FikaPlayer _player;
     private bool _sendPackets;
-    private PlayerStatePacket _state;
     private int _animHash;
     private bool IsMoving
     {
@@ -31,10 +30,6 @@ public class BotPacketSender : MonoBehaviour, IPacketSender
         var sender = bot.gameObject.AddComponent<BotPacketSender>();
         sender._player = bot;
         sender.NetworkManager = Singleton<FikaServer>.Instance;
-        sender._state = new()
-        {
-            NetId = (byte)bot.NetId
-        };
         sender._animHash = PlayerAnimator.INERT_PARAM_HASH;
         sender.SendState = true;
         return Task.FromResult(sender);
@@ -62,8 +57,20 @@ public class BotPacketSender : MonoBehaviour, IPacketSender
             return;
         }
 
-        _state.UpdateFromPlayer(_player, IsMoving);
-        NetworkManager.SendPlayerState(ref _state);
+        var state = new PlayerStateData(_player, IsMoving);
+        NetworkManager.SendPlayerState(ref state);
+    }
+
+    public bool WriteState(NetDataWriter writer)
+    {
+        if (!_sendPackets)
+        {
+            return false;
+        }
+
+        var state = new PlayerStateData(_player, IsMoving);
+        writer.PutUnmanaged(state);
+        return true;
     }
 
     public void DestroyThis()

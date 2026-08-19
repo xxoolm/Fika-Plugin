@@ -1,12 +1,12 @@
-﻿using EFT;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using EFT;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Packets;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Player;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Networking;
 
@@ -22,7 +22,7 @@ public interface IFikaNetworkManager
     int NetId { get; set; }
 
     /// <summary>
-    /// Gets or sets the <see cref="CoopHandler"/> responsible for managing cooperative gameplay logic.
+    /// Gets or sets the <see cref="CoopHandler"/> responsible for managing gameplay logic.
     /// </summary>
     CoopHandler CoopHandler { get; set; }
 
@@ -42,7 +42,12 @@ public interface IFikaNetworkManager
     bool AllowVOIP { get; set; }
 
     /// <summary>
-    /// Gets or sets the list of observed cooperative players in the session.
+    /// Whether strict inventory sync is enabled
+    /// </summary>
+    bool StrictInventorySync { get; set; }
+
+    /// <summary>
+    /// Gets or sets the list of observed players in the session.
     /// </summary>
     List<ObservedPlayer> ObservedPlayers { get; set; }
 
@@ -106,7 +111,7 @@ public interface IFikaNetworkManager
     /// Sends a player state using fast serialization.
     /// </summary>
     /// <param name="packet">The player state packet to send.</param>
-    void SendPlayerState(ref PlayerStatePacket packet);
+    void SendPlayerState(ref PlayerStateData packet);
 
     /// <summary>
     /// Sends raw VOIP audio data to a specific peer or multiple recipients.
@@ -172,6 +177,18 @@ public interface IFikaNetworkManager
     void RegisterCustomType<T>(Action<NetDataWriter, T> writeDelegate, Func<NetDataReader, T> readDelegate);
 
     /// <summary>
+    /// Unregisters <typeparamref name="T"/> from the packet manager
+    /// </summary>
+    /// <typeparam name="T">The <see cref="INetSerializable"/> to unregister</typeparam>
+    void UnregisterPacket<T>() where T : INetSerializable;
+
+    /// <summary>
+    /// Unregisters <typeparamref name="T"/> from the packet manager
+    /// </summary>
+    /// <typeparam name="T">The <see cref="INetReusable"/> to unregister</typeparam>
+    void UnregisterNetReusable<T>() where T : INetReusable;
+
+    /// <summary>
     /// Initializes the VOIP system asynchronously.
     /// </summary>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
@@ -181,6 +198,13 @@ public interface IFikaNetworkManager
     /// Prints network statistics to the output (internal use only).
     /// </summary>
     internal void PrintStatistics();
+
+    /// <summary>
+    /// Returns a <see cref="NetPeer"/> from an id
+    /// </summary>
+    /// <param name="id">The id to look for</param>
+    /// <returns>A <see cref="NetPeer"/> if found; otherwise <see langword="null"/></returns>
+    public NetPeer GetPeerById(int id);
 
     /// <summary>
     /// Represents the send rate options for the <see cref="IFikaNetworkManager"/>.

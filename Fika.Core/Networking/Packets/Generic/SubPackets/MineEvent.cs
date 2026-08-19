@@ -1,8 +1,8 @@
-﻿using Comfort.Common;
+﻿using System.Linq;
+using Comfort.Common;
 using EFT;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
-using System.Linq;
 
 namespace Fika.Core.Networking.Packets.Generic.SubPackets;
 
@@ -19,7 +19,7 @@ public sealed class MineEvent : IPoolSubPacket
 
     public static MineEvent FromValue(Vector3 minePosition)
     {
-        MineEvent packet = GenericSubPacketPoolManager.Instance.GetPacket<MineEvent>(EGenericSubPacketType.Mine);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<MineEvent>(EGenericSubPacketType.Mine);
         packet.MinePosition = minePosition;
         return packet;
     }
@@ -28,11 +28,11 @@ public sealed class MineEvent : IPoolSubPacket
     {
         if (Singleton<GameWorld>.Instance.MineManager != null)
         {
-            NetworkGame<EftGamePlayerOwner>.Class1656 mineSeeker = new()
+            NetworkGame<EftGamePlayerOwner>.CG_ParseMineExplosionData mineSeeker = new()
             {
                 minePosition = MinePosition
             };
-            MineDirectional mineDirectional = Singleton<GameWorld>.Instance.MineManager.Mines.FirstOrDefault(mineSeeker.method_0);
+            var mineDirectional = Singleton<GameWorld>.Instance.MineManager.Mines.FirstOrDefault(mineSeeker.method_0);
             if (mineDirectional == null)
             {
                 return;

@@ -1,6 +1,7 @@
-﻿using Fika.Core.Main.Players;
-using Fika.Core.Networking.Pooling;
+﻿using EFT;
 using System;
+using Fika.Core.Main.Players;
+using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Networking.Packets.Generic.SubPackets;
 
@@ -13,19 +14,18 @@ public sealed class InventoryPacket : IPoolSubPacket
         return new();
     }
 
-    public static InventoryPacket FromValue(int netId, BaseInventoryOperationClass operation)
+    public static InventoryPacket FromValue(int netId, EFT.InventoryLogic.Operations.AbstractOperation operation)
     {
-        InventoryPacket packet = GenericSubPacketPoolManager.Instance.GetPacket<InventoryPacket>(EGenericSubPacketType.InventoryOperation);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<InventoryPacket>(EGenericSubPacketType.InventoryOperation);
         packet.NetId = netId;
         packet.CallbackId = operation.Id;
-        packet.WriteOperation(operation);
+        packet.Descriptor = operation.ToDescriptor();
         return packet;
     }
 
     public int NetId;
     public ushort CallbackId;
-    public byte[] OperationBytes;
-
+    public InventoryOperationDescriptor Descriptor;
 
     [Obsolete("Not used for inventory packets", true)]
     public void Execute(FikaPlayer player = null)
@@ -33,32 +33,24 @@ public sealed class InventoryPacket : IPoolSubPacket
         // unused
     }
 
-    public void WriteOperation(BaseInventoryOperationClass operation)
-    {
-        EFTWriterClass eftWriter = WriterPoolManager.GetWriter();
-        eftWriter.WritePolymorph(operation.ToDescriptor());
-        OperationBytes = eftWriter.ToArray();
-        WriterPoolManager.ReturnWriter(eftWriter);
-    }
-
     public void Serialize(NetDataWriter writer)
     {
         writer.Put(NetId);
         writer.Put(CallbackId);
-        writer.PutByteArray(OperationBytes);
+        writer.PutPolymorph(Descriptor);
     }
 
     public void Deserialize(NetDataReader reader)
     {
         NetId = reader.GetInt();
         CallbackId = reader.GetUShort();
-        OperationBytes = reader.GetByteArray();
+        Descriptor = reader.GetPolymorph<InventoryOperationDescriptor>();
     }
 
     public void Dispose()
     {
         NetId = 0;
         CallbackId = 0;
-        OperationBytes = null;
+        Descriptor = null;
     }
 }

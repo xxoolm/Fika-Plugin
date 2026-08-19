@@ -1,7 +1,6 @@
 ﻿using Comfort.Common;
+using CommonAssets.Scripts.Game;
 using EFT.Interactive;
-using EFT.Interactive.SecretExfiltrations;
-using Fika.Core.Main.Components;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
@@ -23,7 +22,7 @@ public sealed class ExfilCountdown : IPoolSubPacket
 
     public static ExfilCountdown FromValue(string exfilName, float exfilStartTime)
     {
-        ExfilCountdown packet = GenericSubPacketPoolManager.Instance.GetPacket<ExfilCountdown>(EGenericSubPacketType.ExfilCountdown);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<ExfilCountdown>(EGenericSubPacketType.ExfilCountdown);
         packet.ExfilName = exfilName;
         packet.ExfilStartTime = exfilStartTime;
         return packet;
@@ -31,24 +30,24 @@ public sealed class ExfilCountdown : IPoolSubPacket
 
     public void Execute(FikaPlayer player = null)
     {
-        CoopHandler coopHandler = Singleton<IFikaNetworkManager>.Instance.CoopHandler;
+        var coopHandler = Singleton<IFikaNetworkManager>.Instance.CoopHandler;
         if (coopHandler == null)
         {
-            FikaPlugin.Instance.FikaLogger.LogError("ClientExtract: CoopHandler was null!");
+            FikaGlobals.LogError("ClientExtract: CoopHandler was null!");
             return;
         }
 
-        if (ExfiltrationControllerClass.Instance != null)
+        if (ExfiltrationController.Instance != null)
         {
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame == null)
             {
                 FikaGlobals.LogError("ExfilCountdown: FikaGame was null");
                 return;
             }
 
-            ExfiltrationControllerClass exfilController = ExfiltrationControllerClass.Instance;
-            foreach (ExfiltrationPoint exfiltrationPoint in exfilController.ExfiltrationPoints)
+            var exfilController = ExfiltrationController.Instance;
+            foreach (var exfiltrationPoint in exfilController.ExfiltrationPoints)
             {
                 if (exfiltrationPoint.Settings.Name == ExfilName)
                 {
@@ -64,7 +63,7 @@ public sealed class ExfilCountdown : IPoolSubPacket
 
             if (exfilController.SecretExfiltrationPoints != null)
             {
-                foreach (SecretExfiltrationPoint secretExfiltration in exfilController.SecretExfiltrationPoints)
+                foreach (var secretExfiltration in exfilController.SecretExfiltrationPoints)
                 {
                     if (secretExfiltration.Settings.Name == ExfilName)
                     {
@@ -79,7 +78,7 @@ public sealed class ExfilCountdown : IPoolSubPacket
                 }
             }
 
-            FikaPlugin.Instance.FikaLogger.LogError("ExfilCountdown: Could not find ExfiltrationPoint: " + ExfilName);
+            FikaGlobals.LogError("ExfilCountdown: Could not find ExfiltrationPoint: " + ExfilName);
         }
     }
 

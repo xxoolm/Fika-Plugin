@@ -1,16 +1,14 @@
 ﻿using EFT;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
 
 public sealed class ShotInfoPacket : IPoolSubPacket
 {
-    private ShotInfoPacket()
-    {
-
-    }
+    private ShotInfoPacket() { }
 
     public static ShotInfoPacket CreateInstance()
     {
@@ -31,7 +29,7 @@ public sealed class ShotInfoPacket : IPoolSubPacket
 
     public static ShotInfoPacket FromDryShot(int chamberIndex, bool underbarrelShot, EShotType shotType)
     {
-        ShotInfoPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
         packet.ShotType = shotType;
         packet.ChamberIndex = chamberIndex;
         packet.UnderbarrelShot = underbarrelShot;
@@ -40,10 +38,10 @@ public sealed class ShotInfoPacket : IPoolSubPacket
 
     public static ShotInfoPacket FromMisfire(MongoID ammoTemplate, float overheat, EShotType shotType)
     {
-        ShotInfoPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
+        packet.ShotType = shotType;
         packet.AmmoTemplate = ammoTemplate;
         packet.Overheat = overheat;
-        packet.ShotType = shotType;
         return packet;
     }
 
@@ -51,7 +49,8 @@ public sealed class ShotInfoPacket : IPoolSubPacket
         float lastShotOverheat, float lastShotTime, float durability, int chamberIndex, bool underbarrelShot,
         bool slideOnOverheatReached, EShotType shotType)
     {
-        ShotInfoPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<ShotInfoPacket>(EFirearmSubPacketType.ShotInfo);
+        packet.ShotType = shotType;
         packet.ShotPosition = shotPosition;
         packet.ShotDirection = shotDirection;
         packet.AmmoTemplate = ammoTemplate;
@@ -62,7 +61,6 @@ public sealed class ShotInfoPacket : IPoolSubPacket
         packet.ChamberIndex = chamberIndex;
         packet.UnderbarrelShot = underbarrelShot;
         packet.SlideOnOverheatReached = slideOnOverheatReached;
-        packet.ShotType = shotType;
         return packet;
     }
 
@@ -70,13 +68,17 @@ public sealed class ShotInfoPacket : IPoolSubPacket
     {
         if (!player.HealthController.IsAlive)
         {
-            FikaPlugin.Instance.FikaLogger.LogError("ShotInfoPacket::Execute: Player was not alive, can not process!");
+            FikaGlobals.LogError("ShotInfoPacket::Execute: Player was not alive, can not process!");
             return;
         }
 
         if (player.HandsController is ObservedFirearmController controller)
         {
             controller.HandleShotInfoPacket(this, player.InventoryController);
+        }
+        else
+        {
+            FikaGlobals.LogError($"ShotInfoPacket::Execute: HandsController was not ObservedFirearmController, was: {player.HandsController.GetType().Name}");
         }
     }
 
@@ -87,6 +89,13 @@ public sealed class ShotInfoPacket : IPoolSubPacket
         {
             writer.PutPackedInt(ChamberIndex, 0, 16);
             writer.Put(UnderbarrelShot);
+            return;
+        }
+
+        if (ShotType.IsMisfire())
+        {
+            writer.PutMongoID(AmmoTemplate);
+            writer.PutPackedFloat(Overheat, 0f, 200f, EFloatCompression.High);
             return;
         }
 
@@ -109,6 +118,13 @@ public sealed class ShotInfoPacket : IPoolSubPacket
         {
             ChamberIndex = reader.GetPackedInt(0, 16);
             UnderbarrelShot = reader.GetBool();
+            return;
+        }
+
+        if (ShotType.IsMisfire())
+        {
+            AmmoTemplate = reader.GetMongoID();
+            Overheat = reader.GetPackedFloat(0f, 200f, EFloatCompression.High);
             return;
         }
 

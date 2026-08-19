@@ -1,4 +1,7 @@
-﻿using Audio.Vehicles.BTR;
+﻿using System;
+using System.Reflection;
+using System.Threading.Tasks;
+using Audio.Vehicles.BTR;
 using Comfort.Common;
 using EFT;
 using EFT.Vehicle;
@@ -8,10 +11,6 @@ using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.World;
 using HarmonyLib;
 using SPT.Reflection.Patching;
-using System;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.Patches.BTR;
 
@@ -19,7 +18,8 @@ public class BTRView_GoOut_Patch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(BTRView).GetMethod(nameof(BTRView.GoOut));
+        return typeof(BTRView).GetMethod(nameof(BTRView.GoOut),
+            [typeof(Player), typeof(BTRSide), typeof(byte), typeof(bool)]);
     }
 
     [PatchPrefix]
@@ -34,7 +34,7 @@ public class BTRView_GoOut_Patch : ModulePatch
 
         if (player.IsYourPlayer)
         {
-            FikaPlayer myPlayer = (FikaPlayer)player;
+            var myPlayer = (FikaPlayer)player;
             myPlayer.PacketSender.SendState = true;
             if (FikaBackendUtils.IsServer)
             {
@@ -61,14 +61,14 @@ public class BTRView_GoOut_Patch : ModulePatch
     {
         try
         {
-            CancellationToken cancellationToken = view.method_12(observedPlayer);
+            var cancellationToken = view.PlayerToken(observedPlayer);
             observedPlayer.BtrState = EPlayerBtrState.GoOut;
-            BtrSoundController soundController = Traverse.Create(view).Field<BtrSoundController>("_soundController").Value;
+            var soundController = Traverse.Create(view).Field<BtrSoundController>("_soundController").Value;
             if (soundController != null)
             {
                 soundController.UpdateBtrAudioRoom(EnvironmentType.Outdoor, observedPlayer);
             }
-            await view.method_16(observedPlayer.MovementContext.PlayerAnimator, fast, true, cancellationToken);
+            await view.GoOutAnimation(observedPlayer.MovementContext.PlayerAnimator, fast, true, cancellationToken);
             ValueTuple<Vector3, Vector3> valueTuple = side.GoOutPoints();
             side.ApplyPlayerRotation(observedPlayer.MovementContext, valueTuple.Item1, valueTuple.Item2 + Vector3.up * 1.9f);
             observedPlayer.BtrState = EPlayerBtrState.Outside;
@@ -79,7 +79,7 @@ public class BTRView_GoOut_Patch : ModulePatch
         }
         catch (Exception ex)
         {
-            FikaPlugin.Instance.FikaLogger.LogError("BTRView_GoOut_Patch: " + ex.Message);
+            FikaGlobals.LogError("BTRView_GoOut_Patch: " + ex.Message);
         }
     }
 }

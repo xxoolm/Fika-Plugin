@@ -1,10 +1,10 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
+using System;
 using Diz.LanguageExtensions;
 using EFT;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.ObservedClasses.MovementStates;
-using System;
 
 namespace Fika.Core.Main.ObservedClasses;
 
@@ -57,7 +57,28 @@ public class ObservedMovementContext : MovementContext
 
     public override void ApplyApproachMotion(Vector3 motion, float deltaTime)
     {
-        base.DirectApplyMotion(motion, deltaTime);
+        DirectApplyMotion(motion, deltaTime);
+    }
+
+    public override void DirectApplyMotion(Vector3 motion, float deltaTime)
+    {
+        InputMotion = motion / deltaTime;
+        var speedLimit = CharacterController.SpeedLimit;
+        var hasPlatformMotion = PlatformMotion != Vector3.zero;
+        if (hasPlatformMotion)
+        {
+            CharacterController.SpeedLimit = -1f;
+        }
+
+        CharacterController.Move(motion + PlatformMotion, deltaTime);
+        if (hasPlatformMotion)
+        {
+            CharacterController.SpeedLimit = speedLimit;
+        }
+        if (Platform == null)
+        {
+            DampPlatformMotion(deltaTime);
+        }
     }
 
     public override void Flash(ref Vector3 motion)
@@ -148,7 +169,7 @@ public class ObservedMovementContext : MovementContext
 
         CheckFlying(deltaTime);
         SmoothPoseLevel(deltaTime);
-        method_13(deltaTime);
+        SmoothTilt(deltaTime);
     }
 
     public override void UpdateGroundCollision(float deltaTime)
@@ -157,7 +178,7 @@ public class ObservedMovementContext : MovementContext
         {
             return;
         }
-        float num = 1f;
+        var num = 1f;
         if (IsGrounded)
         {
             num = 0f;
@@ -174,13 +195,13 @@ public class ObservedMovementContext : MovementContext
 
     public override void CheckFlying(float deltaTime)
     {
-        float y = TransformPosition.y;
+        var y = TransformPosition.y;
         if (IsGrounded)
         {
-            float fallHeight = StartFallingHeight - y;
-            float jumpHeight = y - StartFlyHeight;
-            StartFallingHeight = y;
-            if (!PreviousGroundResult)
+            var fallHeight = _startFallingHeight - y;
+            var jumpHeight = y - _startFlyHeight;
+            _startFallingHeight = y;
+            if (!_previousGroundResult)
             {
                 FreefallTime = 0f;
                 OnGrounded?.Invoke(fallHeight, jumpHeight);
@@ -191,17 +212,17 @@ public class ObservedMovementContext : MovementContext
         else
         {
             FreefallTime += deltaTime;
-            if (PreviousGroundResult)
+            if (_previousGroundResult)
             {
-                StartFlyHeight = y;
+                _startFlyHeight = y;
             }
-            if (y > StartFallingHeight)
+            if (y > _startFallingHeight)
             {
-                StartFallingHeight = y;
+                _startFallingHeight = y;
             }
         }
 
-        PreviousGroundResult = IsGrounded;
+        _previousGroundResult = IsGrounded;
     }
 
     public override void WeightRelatedValuesUpdated()
@@ -217,7 +238,10 @@ public class ObservedMovementContext : MovementContext
     {
         return name switch
         {
+            EPlayerState.Idle => new ObservedIdleStateClass(this),
             EPlayerState.Run => new ObservedRunState(this),
+            EPlayerState.ProneMove => new ObservedProneMoveStateClass(this),
+            EPlayerState.Transit2Prone => new ObservedTransit2ProneStateClass(this),
             EPlayerState.Sprint => new ObservedSprintState(this),
             EPlayerState.Stationary => new ObservedStationaryState(this),
             EPlayerState.IdleWeaponMounting => new ObservedMountedState(this, _player),
@@ -231,23 +255,22 @@ public class ObservedMovementContext : MovementContext
 
     public new static ObservedMovementContext Create(Player player, Func<IAnimator> animatorGetter, Func<ICharacterController> characterControllerGetter, LayerMask groundMask)
     {
-        ObservedMovementContext movementContext = Create<ObservedMovementContext>(player, animatorGetter, characterControllerGetter, groundMask);
-        return movementContext;
+        return Create<ObservedMovementContext>(player, animatorGetter, characterControllerGetter, groundMask);
     }
 
     public override void SmoothPoseLevel(float deltaTime)
     {
-        float num = Math.Abs(SmoothedPoseLevel - PoseLevel_1);
+        var num = Math.Abs(SmoothedPoseLevel - _poseLevel);
         if (num < 1E-45f)
         {
             return;
         }
         if (num > 0.001f)
         {
-            SmoothedPoseLevel = Mathf.Lerp(SmoothedPoseLevel, PoseLevel_1, deltaTime * EFTHardSettings.Instance.POSE_CHANGING_SPEED * TransitionSpeed);
+            SmoothedPoseLevel = Mathf.Lerp(SmoothedPoseLevel, _poseLevel, deltaTime * EFTHardSettings.Instance.POSE_CHANGING_SPEED * TransitionSpeed);
             return;
         }
-        SmoothedPoseLevel = PoseLevel_1;
+        SmoothedPoseLevel = _poseLevel;
     }
 
     public override void SetStationaryWeapon(Action<Player.AbstractHandsController, Player.AbstractHandsController> callback)
@@ -261,9 +284,9 @@ public class ObservedMovementContext : MovementContext
         OnHandsControllerChanged += handler.HandleSwap;
     }
 
-    public override void DropStationary(StationaryPacketStruct.EStationaryCommand command)
+    public override void DropStationary(StationaryWeaponPacket.EStationaryCommand command)
     {
-        if (command is StationaryPacketStruct.EStationaryCommand.Leave)
+        if (command is StationaryWeaponPacket.EStationaryCommand.Leave)
         {
             PlayerAnimatorSetStationary(false);
             RotationAction = DefaultRotationFunction;
@@ -304,7 +327,7 @@ public class ObservedMovementContext : MovementContext
         _player.ProceduralWeaponAnimation.SetMountingData(false, false);
         observedMountedState.StartExiting();
         PlayerMountingPointData.OnStartExitMountedState -= StartExitingMountedState;
-        Player.AbstractHandsController handsController = _player.HandsController;
+        var handsController = _player.HandsController;
         if (handsController == null)
         {
             return;

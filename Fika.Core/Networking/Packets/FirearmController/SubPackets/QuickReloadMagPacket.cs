@@ -1,9 +1,10 @@
-﻿using EFT;
-using EFT.InventoryLogic;
+﻿using EFT.InventoryLogic;
+using System;
+using EFT;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
-using System;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
 
@@ -16,7 +17,7 @@ public sealed class QuickReloadMagPacket : IPoolSubPacket
 
     public static QuickReloadMagPacket FromValue(MongoID magId, bool reload)
     {
-        QuickReloadMagPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<QuickReloadMagPacket>(EFirearmSubPacketType.QuickReloadMag);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<QuickReloadMagPacket>(EFirearmSubPacketType.QuickReloadMag);
         packet.MagId = magId;
         packet.Reload = reload;
         return packet;
@@ -36,26 +37,26 @@ public sealed class QuickReloadMagPacket : IPoolSubPacket
         {
             try
             {
-                GStruct156<Item> result = player.FindItemById(MagId);
+                var result = player.FindItemById(MagId);
                 if (!result.Succeeded)
                 {
-                    FikaPlugin.Instance.FikaLogger.LogError(result.Error);
+                    FikaGlobals.LogError(result.Error);
                     return;
                 }
-                if (result.Value is MagazineItemClass magazine)
+                if (result.Value is Magazine magazine)
                 {
                     controller.FastForwardCurrentState();
                     controller.QuickReloadMag(magazine, null);
                 }
                 else
                 {
-                    FikaPlugin.Instance.FikaLogger.LogError($"QuickReloadMagPacket: item was not of type MagazineClass, was {result.Value.GetType()}");
+                    FikaGlobals.LogError($"QuickReloadMagPacket: item was not of type MagazineClass, was {result.Value.GetType()}");
                 }
             }
             catch (Exception ex)
             {
-                FikaPlugin.Instance.FikaLogger.LogError(ex);
-                FikaPlugin.Instance.FikaLogger.LogError($"QuickReloadMagPacket: There is no item {MagId} in profile {player.ProfileId}");
+                FikaGlobals.LogError(ex);
+                FikaGlobals.LogError($"QuickReloadMagPacket: There is no item {MagId} in profile {player.ProfileId}");
                 throw;
             }
         }

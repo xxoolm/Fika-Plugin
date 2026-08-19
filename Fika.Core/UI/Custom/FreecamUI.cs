@@ -2,6 +2,7 @@
 
 public class FreecamUI : MonoBehaviour
 {
+    public GameObject OverlayGroup;
     public TextMeshProUGUI JumpText;
     public TextMeshProUGUI SwapMode;
     public TextMeshProUGUI DetachText;
@@ -11,6 +12,7 @@ public class FreecamUI : MonoBehaviour
     public TextMeshProUGUI InputText;
     public TextMeshProUGUI TurboText;
     public TextMeshProUGUI PlayerList;
+    public Transform ListOfPlayers;
 
     public GameObject ListPlayerPrefab;
 }

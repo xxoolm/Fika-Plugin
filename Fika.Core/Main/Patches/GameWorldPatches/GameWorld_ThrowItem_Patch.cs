@@ -1,17 +1,17 @@
-﻿using EFT;
+﻿using System.Linq;
+using System.Reflection;
+using EFT;
 using EFT.Interactive;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.Utils;
 using SPT.Reflection.Patching;
-using System.Linq;
-using System.Reflection;
 
 namespace Fika.Core.Main.Patches.GameWorldPatches;
 
-public class GameWorld_ThrowItem_Patch : ModulePatch
+public sealed class GameWorld_ThrowItem_Patch : ModulePatch
 {
     private static readonly FieldInfo _networkPhysics = typeof(ObservedLootItem)
-        .GetField("bool_3", BindingFlags.Instance | BindingFlags.NonPublic);
+        .GetField("_isNetworkGame", BindingFlags.Instance | BindingFlags.NonPublic);
 
     protected override MethodBase GetTargetMethod()
     {
@@ -27,6 +27,7 @@ public class GameWorld_ThrowItem_Patch : ModulePatch
             if (player.IsYourPlayer || player.IsAI)
             {
                 ItemPositionSyncer.Create(observedLootItem.gameObject, FikaBackendUtils.IsServer, observedLootItem);
+                _networkPhysics.SetValue(observedLootItem, false);
                 return;
             }
 

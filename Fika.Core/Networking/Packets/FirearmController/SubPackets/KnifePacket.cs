@@ -1,5 +1,6 @@
 ﻿using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
@@ -13,7 +14,7 @@ public sealed class KnifePacket : IPoolSubPacket
 
     public static KnifePacket FromValue(bool examine, bool kick, bool altKick, bool breakCombo)
     {
-        KnifePacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<KnifePacket>(EFirearmSubPacketType.Knife);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<KnifePacket>(EFirearmSubPacketType.Knife);
         packet.Examine = examine;
         packet.Kick = kick;
         packet.AltKick = altKick;
@@ -57,7 +58,7 @@ public sealed class KnifePacket : IPoolSubPacket
         }
         else
         {
-            FikaPlugin.Instance.FikaLogger.LogError($"KnifePacket: HandsController was not of type CoopObservedKnifeController! Was {player.HandsController.GetType().Name}");
+            FikaGlobals.LogError($"KnifePacket: HandsController was not of type CoopObservedKnifeController! Was {player.HandsController.GetType().Name}");
         }
     }
 

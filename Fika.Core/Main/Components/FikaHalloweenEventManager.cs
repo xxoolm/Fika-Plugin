@@ -1,9 +1,9 @@
-﻿using BepInEx.Logging;
+﻿using System;
+using BepInEx.Logging;
 using Comfort.Common;
 using EFT.GlobalEvents;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.World;
-using System;
 
 namespace Fika.Core.Main.Components;
 
@@ -28,9 +28,22 @@ internal class FikaHalloweenEventManager : MonoBehaviour
 
         _server = Singleton<FikaServer>.Instance;
 
-        _summonStartedAction = GlobalEventHandlerClass.Instance.SubscribeOnEvent<HalloweenSummonStartedEvent>(OnHalloweenSummonStarted);
-        _syncStateEvent = GlobalEventHandlerClass.Instance.SubscribeOnEvent<HalloweenSyncStateEvent>(OnHalloweenSyncStateEvent);
-        _syncExitsEvent = GlobalEventHandlerClass.Instance.SubscribeOnEvent<HalloweenSyncExitsEvent>(OnHalloweenSyncExitsEvent);
+        _summonStartedAction = GlobalEventsController.Instance.SubscribeOnEvent<HalloweenSummonStartedEvent>(OnHalloweenSummonStarted);
+        _syncStateEvent = GlobalEventsController.Instance.SubscribeOnEvent<HalloweenSyncStateEvent>(OnHalloweenSyncStateEvent);
+        _syncExitsEvent = GlobalEventsController.Instance.SubscribeOnEvent<HalloweenSyncExitsEvent>(OnHalloweenSyncExitsEvent);
+    }
+
+    protected void OnDestroy()
+    {
+        _logger.LogInfo("Destroying CoopHalloweenEventManager");
+
+        _summonStartedAction?.Invoke();
+        _syncStateEvent?.Invoke();
+        _syncExitsEvent?.Invoke();
+
+        _summonStartedAction = null;
+        _syncStateEvent = null;
+        _syncExitsEvent = null;
     }
 
     private void OnHalloweenSummonStarted(HalloweenSummonStartedEvent summonStartedEvent)

@@ -1,4 +1,5 @@
-﻿using Fika.Core.Main.Players;
+﻿using EFT;
+using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Networking.Packets.Player.Common.SubPackets;
@@ -15,9 +16,9 @@ public sealed class HeadLightsPacket : IPoolSubPacket
         return new();
     }
 
-    public static HeadLightsPacket FromValue(int amount, bool isSilent, FirearmLightStateStruct[] lightStates)
+    public static HeadLightsPacket FromValue(int amount, bool isSilent, LightsState[] lightStates)
     {
-        HeadLightsPacket packet = CommonSubPacketPoolManager.Instance.GetPacket<HeadLightsPacket>(ECommonSubPacketType.HeadLights);
+        var packet = CommonSubPacketPoolManager.Instance.GetPacket<HeadLightsPacket>(ECommonSubPacketType.HeadLights);
         packet.Amount = amount;
         packet.IsSilent = isSilent;
         packet.LightStates = lightStates;
@@ -26,7 +27,7 @@ public sealed class HeadLightsPacket : IPoolSubPacket
 
     public int Amount;
     public bool IsSilent;
-    public FirearmLightStateStruct[] LightStates;
+    public LightsState[] LightStates;
 
     public void Execute(FikaPlayer player)
     {
@@ -39,7 +40,7 @@ public sealed class HeadLightsPacket : IPoolSubPacket
         writer.Put(IsSilent);
         if (Amount > 0)
         {
-            for (int i = 0; i < Amount; i++)
+            for (var i = 0; i < Amount; i++)
             {
                 writer.Put(LightStates[i].Id);
                 writer.Put(LightStates[i].IsActive);
@@ -54,8 +55,8 @@ public sealed class HeadLightsPacket : IPoolSubPacket
         IsSilent = reader.GetBool();
         if (Amount > 0)
         {
-            LightStates = new FirearmLightStateStruct[Amount];
-            for (int i = 0; i < Amount; i++)
+            LightStates = new LightsState[Amount];
+            for (var i = 0; i < Amount; i++)
             {
                 LightStates[i] = new()
                 {

@@ -1,4 +1,9 @@
-﻿using BepInEx.Logging;
+﻿using EFT.Communications;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using BepInEx.Logging;
 using Comfort.Common;
 using Diz.Jobs;
 using EFT;
@@ -11,10 +16,6 @@ using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.Components;
 
@@ -145,6 +146,31 @@ public class CoopHandler : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Checks if all human players are alive/downed
+    /// </summary>
+    /// <returns><see langword="true"/> if everyone is dead; otherwise <see langword="false"/></returns>
+    public bool AreAllHumanPlayersDead()
+    {
+        var deadPlayers = 0;
+        for (var i = 0; i < HumanPlayers.Count; i++)
+        {
+            var player = HumanPlayers[i];
+            if (player.IsYourPlayer)
+            {
+                continue;
+            }
+
+            if (!player.HealthController.IsAlive || player.Downed)
+            {
+                deadPlayers++;
+            }
+        }
+
+        var areAllDead = deadPlayers >= (AmountOfHumans - 1);
+        return deadPlayers >= (AmountOfHumans - 1);
+    }
+
     protected void Awake()
     {
         _logger = Logger.CreateLogSource("CoopHandler");
@@ -206,7 +232,7 @@ public class CoopHandler : MonoBehaviour
 
     public void ReInitInteractables()
     {
-        Singleton<GameWorld>.Instance.World_0.method_0(null);
+        Singleton<GameWorld>.Instance.World.RegisterNetworkInteractionObjects(null);
     }
 
     /// <summary>
@@ -214,7 +240,7 @@ public class CoopHandler : MonoBehaviour
     /// </summary>
     private void ProcessQuitting()
     {
-        if (!FikaPlugin.ExtractKey.Value.IsDown())
+        if (!FikaPlugin.Instance.Settings.ExtractKey.Value.IsDown())
         {
             return;
         }
@@ -225,7 +251,7 @@ public class CoopHandler : MonoBehaviour
             return;
         }
 
-        var keyName = FikaPlugin.ExtractKey.Value.ToString();
+        var keyName = FikaPlugin.Instance.Settings.ExtractKey.Value.ToString();
         ConsoleScreen.Log($"{keyName} pressed, attempting to extract!");
         _logger.LogInfo($"{keyName} pressed, attempting to extract!");
 
@@ -254,7 +280,7 @@ public class CoopHandler : MonoBehaviour
 
         if (peers > 0)
         {
-            NotificationManagerClass.DisplayWarningNotification(LocaleUtils.HOST_CANNOT_EXTRACT.Localized());
+            NotificationManager.DisplayWarningNotification(LocaleUtils.HOST_CANNOT_EXTRACT.Localized());
             _requestQuitGame = false;
             return;
         }
@@ -262,7 +288,7 @@ public class CoopHandler : MonoBehaviour
         var recentDisconnect = server.TimeSinceLastPeerDisconnected > DateTime.Now.AddSeconds(-5);
         if (server.HasHadPeer && recentDisconnect)
         {
-            NotificationManagerClass.DisplayWarningNotification(LocaleUtils.HOST_WAIT_5_SECONDS.Localized());
+            NotificationManager.DisplayWarningNotification(LocaleUtils.HOST_WAIT_5_SECONDS.Localized());
             _requestQuitGame = false;
             return;
         }
@@ -297,8 +323,8 @@ public class CoopHandler : MonoBehaviour
         await JobScheduler.Yield();
         try
         {
-            await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(PoolManagerClass.PoolsCategory.Raid,
-                PoolManagerClass.AssemblyType.Local, allPrefabPaths, FikaPlugin.LoadPriority.Value.ToLoadPriorty());
+            await Singleton<ObjectsFactory>.Instance.LoadBundlesAndCreatePools(ObjectsFactory.PoolsCategory.Raid,
+                ObjectsFactory.AssemblyType.Local, allPrefabPaths, FikaPlugin.Instance.Settings.LoadPriority.Value.ToLoadPriorty());
         }
         catch (OperationCanceledException)
         {
@@ -310,7 +336,7 @@ public class CoopHandler : MonoBehaviour
         }
         await JobScheduler.Yield();
 
-        var otherPlayer = SpawnObservedPlayer(spawnObject);
+        var otherPlayer = await SpawnObservedPlayer(spawnObject);
 
         if (!spawnObject.IsAlive)
         {
@@ -388,7 +414,7 @@ public class CoopHandler : MonoBehaviour
         _spawnQueue.Enqueue(spawnObject);
     }
 
-    private ObservedPlayer SpawnObservedPlayer(SpawnObject spawnObject)
+    private async ValueTask<ObservedPlayer> SpawnObservedPlayer(SpawnObject spawnObject)
     {
         var isAi = spawnObject.IsAI;
         var profile = spawnObject.Profile;
@@ -407,49 +433,45 @@ public class CoopHandler : MonoBehaviour
 
         var gameWorld = Singleton<GameWorld>.Instance;
 
-        if (isAi && profile.Info.Settings.Role != WildSpawnType.shooterBTR) // spawn underground until everyone has loaded the AI
+        if (isAi) // spawn underground until everyone has loaded the AI
         {
             position = new(0f, -5000f, 0f);
         }
 
-        if (isAi)
+        profile.SetSpawnedInSession((profile.Info.Side == EPlayerSide.Savage || FikaPlugin.Instance.Settings.PMCFoundInRaid) && isAi);
+        if (profile.Info.Side != EPlayerSide.Savage)
         {
-            if (profile.Info.Side is not EPlayerSide.Savage)
+            var backpack = profile.Inventory.Equipment.GetSlot(EquipmentSlot.Backpack).ContainedItem;
+            if (backpack != null)
             {
-                var backpack = profile.Inventory.Equipment.GetSlot(EquipmentSlot.Backpack).ContainedItem;
-                if (backpack != null)
+                foreach (var item in backpack.GetAllItems())
                 {
-                    foreach (var backpackItem in backpack.GetAllItems())
+                    if (item != backpack)
                     {
-                        if (backpackItem != backpack)
-                        {
-                            backpackItem.SpawnedInSession = true;
-                        }
+                        item.SpawnedInSession = true;
                     }
                 }
+            }
 
-                // We still want DogTags to be 'FiR'
-                var item = profile.Inventory.Equipment.GetSlot(EquipmentSlot.Dogtag).ContainedItem;
-                if (item != null)
-                {
-                    item.SpawnedInSession = true;
-                }
+            var armband = profile.Inventory.Equipment.GetSlot(EquipmentSlot.ArmBand).ContainedItem;
+            if (armband != null)
+            {
+                armband.SpawnedInSession = false;
+            }
+
+            var melee = profile.Inventory.Equipment.GetSlot(EquipmentSlot.Scabbard).ContainedItem;
+            if (melee != null)
+            {
+                melee.SpawnedInSession = false;
             }
         }
-        else if (profile.Info.Side != EPlayerSide.Savage) // Make sure player PMC items are all not 'FiR'
-        {
-            profile.SetSpawnedInSession(false);
-        }
 
-        // Check for GClass increments on filter
-        var otherPlayer = ObservedPlayer.CreateObservedPlayer(gameWorld, netId, position, Quaternion.identity, "Player",
+        var otherPlayer = await ObservedPlayer.CreateObservedPlayer(gameWorld, netId, position, Quaternion.identity, "Player",
             isAi ? "Bot_" : $"Player_{profile.Nickname}_", EPointOfView.ThirdPerson, profile, healthBytes, isAi,
             EUpdateQueue.Update, Player.EUpdateMode.Manual, Player.EUpdateMode.Auto,
-            BackendConfigAbstractClass.Config.CharacterController.ObservedPlayerMode,
+            AppEnvironment.Config.CharacterController.ObservedPlayerMode,
             FikaGlobals.GetOtherPlayerSensitivity, FikaGlobals.GetOtherPlayerSensitivity, ObservedViewFilter.Default,
-            firstId, firstOperationId, isZombie)
-            .GetAwaiter()
-            .GetResult();
+            firstId, firstOperationId, isZombie);
 
         if (otherPlayer == null)
         {
@@ -457,10 +479,8 @@ public class CoopHandler : MonoBehaviour
         }
 
         Singleton<IFikaNetworkManager>.Instance.ObservedPlayers.Add(otherPlayer);
-
-        otherPlayer.NetId = netId;
 #if DEBUG
-        _logger.LogInfo($"SpawnObservedPlayer: {profile.Nickname} spawning with NetId {netId}");
+        _logger.LogInfo($"SpawnObservedPlayer: {profile.GetCorrectedNickname()} spawning with NetId {netId} at [{position:F1}]");
 #endif
 
         if (!Players.ContainsKey(netId))
@@ -472,7 +492,7 @@ public class CoopHandler : MonoBehaviour
             _logger.LogError($"Trying to add {otherPlayer.Profile.Nickname} to list of players but it was already there!");
         }
 
-        if (!isAi && !HumanPlayers.Contains(otherPlayer))
+        if (!isAi)
         {
             HumanPlayers.Add(otherPlayer);
         }
@@ -489,15 +509,11 @@ public class CoopHandler : MonoBehaviour
 
             if (playerCollider != null && otherCollider != null)
             {
-                EFTPhysicsClass.IgnoreCollision(playerCollider, otherCollider);
+                PhysicsExtensions.IgnoreCollision(playerCollider, otherCollider);
             }
         }
 
         otherPlayer.InitObservedPlayer();
-
-#if DEBUG
-        _logger.LogInfo($"CreateLocalPlayer::{profile.GetCorrectedNickname()}::Spawned.");
-#endif
 
         var controllerType = spawnObject.ControllerType;
         var itemId = spawnObject.ItemId;
@@ -578,7 +594,7 @@ public class CoopHandler : MonoBehaviour
         Extracted
     }
 
-    public class SpawnObject(Profile profile, Vector3 position, bool isAlive, bool isAI, int netId, MongoID currentId, ushort firstOperationId, bool isZombie)
+    public sealed class SpawnObject(Profile profile, Vector3 position, bool isAlive, bool isAI, int netId, MongoID currentId, ushort firstOperationId, bool isZombie)
     {
         public Profile Profile = profile;
         public Vector3 Position = position;

@@ -1,7 +1,7 @@
-﻿using EFT;
-using SPT.Reflection.Patching;
-using System;
+﻿using System;
 using System.Reflection;
+using EFT;
+using SPT.Reflection.Patching;
 
 namespace Fika.Core.Main.Patches;
 
@@ -9,13 +9,13 @@ public class BotCacher_Patch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(LocalBotSettingsProviderClass)
-            .GetMethod(nameof(LocalBotSettingsProviderClass.LoadInternal),
+        return typeof(BotInternalSettingsController)
+            .GetMethod(nameof(BotInternalSettingsController.LoadInternal),
             BindingFlags.Static | BindingFlags.Public);
     }
 
     [PatchPrefix]
-    private static bool PatchPrefix(out CoreBotSettingsClass core, ref bool __result)
+    private static bool PatchPrefix(out BotGlobalsCoreSettings core, ref bool __result)
     {
         if (FikaPlugin.Instance.BotDifficulties != null)
         {
@@ -23,37 +23,37 @@ public class BotCacher_Patch : ModulePatch
         }
         else
         {
-            string text = LocalBotSettingsProviderClass.LoadCoreByString();
+            var text = BotInternalSettingsController.LoadCoreByString();
             if (text == null)
             {
                 core = null;
                 __result = false;
                 return false;
             }
-            core = CoreBotSettingsClass.Create(text);
+            core = BotGlobalsCoreSettings.Create(text);
         }
 
-        foreach (object type in Enum.GetValues(typeof(WildSpawnType)))
+        foreach (var type in Enum.GetValues(typeof(WildSpawnType)))
         {
-            foreach (object difficulty in Enum.GetValues(typeof(BotDifficulty)))
+            foreach (var difficulty in Enum.GetValues(typeof(BotDifficulty)))
             {
                 BotSettingsComponents botSettingsComponents;
                 botSettingsComponents = FikaPlugin.Instance.BotDifficulties.GetComponent((BotDifficulty)difficulty, (WildSpawnType)type);
                 if (botSettingsComponents != null)
                 {
-                    if (!LocalBotSettingsProviderClass.Gclass624_1.ContainsKey((BotDifficulty)difficulty, (WildSpawnType)type))
+                    if (!BotInternalSettingsController.AllSettingsPve.ContainsKey((BotDifficulty)difficulty, (WildSpawnType)type))
                     {
-                        LocalBotSettingsProviderClass.Gclass624_1.Add((BotDifficulty)difficulty, (WildSpawnType)type, botSettingsComponents);
+                        BotInternalSettingsController.AllSettingsPve.Add((BotDifficulty)difficulty, (WildSpawnType)type, botSettingsComponents);
                     }
                 }
                 else
                 {
-                    botSettingsComponents = LocalBotSettingsProviderClass.LoadByDifficulty(LocalBotSettingsProviderClass.CheckOnExclude((BotDifficulty)difficulty, (WildSpawnType)type), (WildSpawnType)type, false, true);
+                    botSettingsComponents = BotInternalSettingsController.LoadByDifficulty(BotInternalSettingsController.CheckOnExclude((BotDifficulty)difficulty, (WildSpawnType)type), (WildSpawnType)type, false, true);
                     if (botSettingsComponents != null)
                     {
-                        if (!LocalBotSettingsProviderClass.Gclass624_1.ContainsKey((BotDifficulty)difficulty, (WildSpawnType)type))
+                        if (!BotInternalSettingsController.AllSettingsPve.ContainsKey((BotDifficulty)difficulty, (WildSpawnType)type))
                         {
-                            LocalBotSettingsProviderClass.Gclass624_1.Add((BotDifficulty)difficulty, (WildSpawnType)type, botSettingsComponents);
+                            BotInternalSettingsController.AllSettingsPve.Add((BotDifficulty)difficulty, (WildSpawnType)type, botSettingsComponents);
                         }
                     }
                     else

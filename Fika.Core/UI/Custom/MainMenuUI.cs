@@ -1,4 +1,5 @@
-﻿using Fika.Core.Main.Utils;
+﻿using EFT;
+using Fika.Core.Main.Utils;
 using TMPro;
 using UnityEngine.UI;
 
@@ -10,6 +11,6 @@ public class MainMenuUI : MonoBehaviour
 
     public void UpdateLabel(int amount)
     {
-        Label.text = string.Format(LocaleUtils.UI_MMUI_ONLINE_PLAYERS.Localized(), amount);
+        Label.SetText(LocaleUtils.UI_MMUI_ONLINE_PLAYERS.Localized(), amount);
     }
 }

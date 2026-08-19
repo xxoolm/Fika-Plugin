@@ -1,18 +1,18 @@
-﻿using EFT.Interactive;
-using Fika.Core.Main.Players;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using EFT.Interactive;
+using Fika.Core.Main.Players;
 
 namespace Fika.Core.Main.ObservedClasses;
 
-public class ObservedCorpseCulling : IDisposable
+public sealed class ObservedCorpseCulling : IDisposable
 {
     public bool IsVisible;
 
     private readonly ObservedPlayer _observedPlayer;
     private readonly Corpse _observedCorpse;
     private readonly List<Renderer> _renderers = new(256);
-    private GClass999 _gClass999;
+    private ObservedCullingObject _gClass999;
     private bool _ragdollDone;
     private bool _localVisible = true;
 
@@ -33,7 +33,7 @@ public class ObservedCorpseCulling : IDisposable
         {
             _gClass999.CustomUpdate();
         }
-        if (!_ragdollDone && _observedCorpse.Ragdoll.Bool_2)
+        if (!_ragdollDone && _observedCorpse.Ragdoll._isPhysicsDone)
         {
             _ragdollDone = true;
         }
@@ -51,7 +51,7 @@ public class ObservedCorpseCulling : IDisposable
 
     private void ChangeRendererState()
     {
-        for (int i = 0; i < _renderers.Count; i++)
+        for (var i = 0; i < _renderers.Count; i++)
         {
             if (_renderers[i] != null)
             {
@@ -59,9 +59,9 @@ public class ObservedCorpseCulling : IDisposable
             }
         }
         _renderers.Clear();
-        bool isVisible = IsVisible;
+        var isVisible = IsVisible;
         _observedPlayer.PlayerBody.GetRenderersNonAlloc(_renderers);
-        for (int k = 0; k < _renderers.Count; k++)
+        for (var k = 0; k < _renderers.Count; k++)
         {
             if (_renderers[k] != null)
             {

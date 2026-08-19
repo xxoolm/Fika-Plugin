@@ -1,6 +1,7 @@
 ﻿using EFT.InventoryLogic;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
@@ -15,7 +16,7 @@ public sealed class GrenadePacket : IPoolSubPacket
     public static GrenadePacket FromValue(Quaternion grenadeRotation, Vector3 grenadePosition, Vector3 throwForce,
         EGrenadePacketType type, bool hasGrenade, bool lowThrow, bool plantTripwire, bool changeToIdle, bool changeToPlant)
     {
-        GrenadePacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<GrenadePacket>(EFirearmSubPacketType.Grenade);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<GrenadePacket>(EFirearmSubPacketType.Grenade);
         packet.GrenadeRotation = grenadeRotation;
         packet.GrenadePosition = grenadePosition;
         packet.ThrowForce = throwForce;
@@ -104,7 +105,7 @@ public sealed class GrenadePacket : IPoolSubPacket
         }
         else
         {
-            FikaPlugin.Instance.FikaLogger.LogError($"GrenadePacket: HandsController was not of type CoopObservedGrenadeController! Was {player.HandsController.GetType().Name}");
+            FikaGlobals.LogError($"GrenadePacket: HandsController was not of type CoopObservedGrenadeController! Was {player.HandsController.GetType().Name}");
         }
     }
 

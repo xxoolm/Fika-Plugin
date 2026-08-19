@@ -1,8 +1,9 @@
-﻿using Comfort.Common;
+﻿using EFT.Ballistics;
+using System;
+using Comfort.Common;
 using EFT;
 using EFT.GameTriggers;
 using Fika.Core.Main.Utils;
-using System;
 
 namespace Fika.Core.Main.Components;
 
@@ -28,7 +29,7 @@ internal class LocalFikaTriggersModule : LocalClientTriggersModule
                     {
                         if (PlayerBones.BodyPartCollidersStaticMap.TryGetValue(damageData2.BodyPartColliderType, out var ebodyPart))
                         {
-                            var damageInfoStruct = new DamageInfoStruct
+                            var damageInfoStruct = new DamageInfo
                             {
                                 BodyPartColliderType = damageData2.BodyPartColliderType,
                                 Damage = damageData2.Amount,

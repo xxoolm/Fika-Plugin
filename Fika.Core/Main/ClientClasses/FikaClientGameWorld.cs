@@ -1,12 +1,19 @@
-﻿using Comfort.Common;
+﻿using CommonAssets.Scripts.Game;
+using EFT.Ballistics;
+using EFT.BufferZone;
+using JsonType;
+using System;
+using System.Collections.Generic;
+using Comfort.Common;
 using EFT;
+using EFT.CameraControl;
+using EFT.Interactive;
 using EFT.InventoryLogic;
+using EFT.MovingPlatforms;
 using EFT.SynchronizableObjects;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
 using HarmonyLib;
-using System;
-using System.Collections.Generic;
 using Systems.Effects;
 
 namespace Fika.Core.Main.ClientClasses;
@@ -17,15 +24,16 @@ namespace Fika.Core.Main.ClientClasses;
 public class FikaClientGameWorld : ClientLocalGameWorld
 {
     public FikaClientWorld FikaClientWorld { get; private set; }
+    public Dictionary<int, Turnable> TurnableDict => Turnables;
 
-    public static FikaClientGameWorld Create(GameObject gameObject, PoolManagerClass objectsFactory, EUpdateQueue updateQueue, string currentProfileId)
+    public static FikaClientGameWorld Create(GameObject gameObject, ObjectsFactory objectsFactory, EUpdateQueue updateQueue, string currentProfileId)
     {
-        FikaClientGameWorld gameWorld = gameObject.AddComponent<FikaClientGameWorld>();
+        var gameWorld = gameObject.AddComponent<FikaClientGameWorld>();
         gameWorld.ObjectsFactory = objectsFactory;
-        Traverse.Create(gameWorld).Field<EUpdateQueue>("eupdateQueue_0").Value = updateQueue;
+        Traverse.Create(gameWorld).Field<EUpdateQueue>("_updateQueue").Value = updateQueue;
         gameWorld.SpeakerManager = gameObject.AddComponent<SpeakerManager>();
-        gameWorld.ExfiltrationController = new ExfiltrationControllerClass();
-        gameWorld.BufferZoneController = new BufferZoneControllerClass();
+        gameWorld.ExfiltrationController = new ExfiltrationController();
+        gameWorld.BufferZoneController = new BufferZoneController();
         gameWorld.CurrentProfileId = currentProfileId;
         gameWorld.UnityTickListener = GameWorldUnityTickListener.Create(gameObject, gameWorld);
         gameWorld.AudioSourceCulling = gameObject.GetOrAddComponent<AudioSourceCulling>();
@@ -34,20 +42,20 @@ public class FikaClientGameWorld : ClientLocalGameWorld
         return gameWorld;
     }
 
-    public override void ShotDelegate(EftBulletClass shotResult)
+    public override void ShotDelegate(Shot shotResult)
     {
         if (!shotResult.IsFlyingOutOfTime)
         {
-            DamageInfoStruct damageInfoStruct = new(EDamageType.Bullet, shotResult);
-            ShotIdStruct shotIdStruct = new(shotResult.Ammo.Id, shotResult.FragmentIndex);
-            ShotInfoClass shotInfoClass = (shotResult.HittedBallisticCollider != null) ? shotResult.HittedBallisticCollider.ApplyHit(damageInfoStruct, shotIdStruct) : null;
+            DamageInfo damageInfoStruct = new(EDamageType.Bullet, shotResult);
+            ShotId shotIdStruct = new(shotResult.Ammo.Id, shotResult.FragmentIndex);
+            var shotInfoClass = (shotResult.HittedBallisticCollider != null) ? shotResult.HittedBallisticCollider.ApplyHit(damageInfoStruct, shotIdStruct) : null;
             shotResult.AddClientHitPosition(shotInfoClass);
-            ExplosiveItemComponentClass itemComponent = shotResult.Ammo.GetItemComponent<ExplosiveItemComponentClass>();
+            var itemComponent = shotResult.Ammo.GetItemComponent<ExplosiveAmmoComponent>();
             if (itemComponent != null && shotResult.TimeSinceShot >= itemComponent.Template.FuzeArmTimeSec)
             {
                 if (Singleton<Effects>.Instantiated)
                 {
-                    string explosionType = itemComponent.Template.ExplosionType;
+                    var explosionType = itemComponent.Template.ExplosionType;
                     if (!string.IsNullOrEmpty(explosionType) && shotResult.IsFirstHit)
                     {
                         Singleton<Effects>.Instance.EmitGrenade(explosionType, shotResult.HitPoint, shotResult.HitNormal, (float)(shotResult.IsForwardHit ? 1 : 0));
@@ -69,16 +77,16 @@ public class FikaClientGameWorld : ClientLocalGameWorld
         }
     }
 
-    public override GrenadeFactoryClass CreateGrenadeFactory()
+    public override GrenadeFactory CreateGrenadeFactory()
     {
         return new FikaClientGrenadeFactory();
     }
 
     public override void PlayerTick(float dt)
     {
-        for (int i = AllAlivePlayersList.Count - 1; i >= 0; i--)
+        for (var i = AllAlivePlayersList.Count - 1; i >= 0; i--)
         {
-            Player player = AllAlivePlayersList[i];
+            var player = AllAlivePlayersList[i];
             try
             {
                 player.UpdateTick();
@@ -95,7 +103,7 @@ public class FikaClientGameWorld : ClientLocalGameWorld
         // Do nothing
     }
 
-    public override void vmethod_1(float dt)
+    public override void UpdateSynchronizableObjectLogic(float dt)
     {
         // Do nothing
     }
@@ -105,9 +113,9 @@ public class FikaClientGameWorld : ClientLocalGameWorld
         // Do nothing
     }
 
-    public override SyncObjectProcessorClass SyncObjectProcessorFactory()
+    public override SynchronizableObjectLogicProcessor SyncObjectProcessorFactory()
     {
-        ClientSynchronizableObjectLogicProcessor = new SynchronizableObjectLogicProcessorClass
+        ClientSynchronizableObjectLogicProcessor = new ClientSynchronizableObjectLogicProcessor
         {
             TripwireManager = new(Singleton<GameWorld>.Instance)
         };
@@ -120,10 +128,10 @@ public class FikaClientGameWorld : ClientLocalGameWorld
         Singleton<FikaClientGameWorld>.Release(this);
         NetManagerUtils.DestroyNetManager(false);
         List<SynchronizableObject> syncObjects = [.. SynchronizableObjectLogicProcessor.GetSynchronizableObjects()];
-        for (int i = 0; i < syncObjects.Count; i++)
+        for (var i = 0; i < syncObjects.Count; i++)
         {
-            SynchronizableObject syncObject = syncObjects[i];
-            syncObject.OnUpdateRequired -= SynchronizableObjectLogicProcessor.method_1;
+            var syncObject = syncObjects[i];
+            syncObject.OnUpdateRequired -= SynchronizableObjectLogicProcessor.UpdateRequiredHandler;
             syncObject.Logic.ReturnToPool();
             syncObject.ReturnToPool();
         }
@@ -142,5 +150,48 @@ public class FikaClientGameWorld : ClientLocalGameWorld
     public override void DeActivateTripwire(TripwireSynchronizableObject tripwire)
     {
         // Do nothing
+    }
+
+    public Item CreateReconnectQuestItem(JsonLootItem lootItem, bool initial, Player questPlayer = null, MovingPlatform platform = null)
+    {
+        var item = (questPlayer == null) ? lootItem.Item : lootItem.Item.CloneItem(null);
+        new ItemController(item, item.Id, item.ShortName, true, EOwnerType.Profile);
+        var gameObject = Singleton<ObjectsFactory>.Instance.CreateLootPrefab(item, ECameraType.Default, null);
+        gameObject.SetActive(true);
+        if (platform != null)
+        {
+            gameObject.transform.position = platform.transform.TransformPoint(lootItem.Position);
+        }
+        else
+        {
+            gameObject.transform.position = lootItem.Position;
+            gameObject.transform.rotation = Quaternion.Euler(lootItem.Rotation);
+        }
+        var lootItem2 = lootItem.useGravity
+            ? CreateLootWithRigidbody(gameObject, item, item.ShortName, lootItem.randomRotation, lootItem.ValidProfiles, out var _, false, true, 0f)
+            : CreateStaticLoot(gameObject, item, item.ShortName, lootItem.randomRotation, lootItem.ValidProfiles, null, lootItem.Shift);
+        if (platform != null)
+        {
+            lootItem2.Board(platform);
+            gameObject.transform.localRotation = Quaternion.Euler(lootItem.Rotation);
+            return item;
+        }
+        var component = gameObject.GetComponent<PreviewPivot>();
+        if (component != null && component.SpawnPosition != Vector3.zero)
+        {
+            var gameObject2 = new GameObject("Weapon spawn root");
+            gameObject2.transform.position = lootItem.Position;
+            gameObject2.transform.rotation = Quaternion.Euler(lootItem.Rotation);
+            var transform = lootItem2.transform;
+            transform.SetParent(gameObject2.transform);
+            transform.localPosition = (initial ? (-component.SpawnPosition) : Vector3.zero);
+            if (lootItem.randomRotation)
+            {
+                transform.rotation = Quaternion.Euler(new Vector3(0f, (float)UnityEngine.Random.Range(0, 360), 0f));
+            }
+            transform.localScale = Vector3.one;
+        }
+
+        return item;
     }
 }

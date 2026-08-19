@@ -1,19 +1,32 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Fika.Core.Networking.LiteNetLib;
 
+internal sealed class MergedPacketUserData
+{
+    public readonly object[] Items;
+
+    public MergedPacketUserData(object[] items)
+    {
+        Items = items;
+    }
+}
+
 internal sealed class ReliableChannel : BaseChannel
 {
+    [ThreadStatic]
+    private static List<object> _mergedPacketUserDataList;
+    private const int MergeHeaderSize = 2;
+    private const int MergeSizeThreshold = 20;
+
     private struct PendingPacket
     {
         private NetPacket _packet;
         private long _timeStamp;
         private bool _isSent;
 
-        public override string ToString()
-        {
-            return _packet == null ? "Empty" : _packet.Sequence.ToString();
-        }
+        public override string ToString() => _packet == null ? "Empty" : _packet.Sequence.ToString();
 
         public void Init(NetPacket packet)
         {
@@ -22,17 +35,22 @@ internal sealed class ReliableChannel : BaseChannel
         }
 
         //Returns true if there is a pending packet inside
-        public bool TrySend(long currentTime, NetPeer peer)
+        public bool TrySend(long currentTime, LiteNetPeer peer)
         {
             if (_packet == null)
+            {
                 return false;
+            }
 
             if (_isSent) //check send time
             {
                 double resendDelay = peer.ResendDelay * TimeSpan.TicksPerMillisecond;
                 double packetHoldTime = currentTime - _timeStamp;
                 if (packetHoldTime < resendDelay)
+                {
                     return true;
+                }
+
                 NetDebug.Write($"[RC]Resend: {packetHoldTime} > {resendDelay}");
             }
             _timeStamp = currentTime;
@@ -41,7 +59,9 @@ internal sealed class ReliableChannel : BaseChannel
             return true;
         }
 
-        public bool Clear(NetPeer peer)
+        public bool IsEmpty => _packet == null;
+
+        public bool Clear(LiteNetPeer peer)
         {
             if (_packet != null)
             {
@@ -71,14 +91,16 @@ internal sealed class ReliableChannel : BaseChannel
     private const int BitsInByte = 8;
     private readonly byte _id;
 
-    public ReliableChannel(NetPeer peer, bool ordered, byte id) : base(peer)
+    public ReliableChannel(LiteNetPeer peer, bool ordered, byte id) : base(peer)
     {
         _id = id;
         _windowSize = NetConstants.DefaultWindowSize;
         _ordered = ordered;
         _pendingPackets = new PendingPacket[_windowSize];
-        for (int i = 0; i < _pendingPackets.Length; i++)
+        for (var i = 0; i < _pendingPackets.Length; i++)
+        {
             _pendingPackets[i] = new PendingPacket();
+        }
 
         if (_ordered)
         {
@@ -98,6 +120,109 @@ internal sealed class ReliableChannel : BaseChannel
         _outgoingAcks = new NetPacket(PacketProperty.Ack, (_windowSize - 1) / BitsInByte + 2) { ChannelId = id };
     }
 
+    private NetPacket GetNextOutgoingPacket()
+    {
+        var maxPayloadSize = Peer.Mtu - NetConstants.ChanneledHeaderSize;
+        NetPacket mergedPacket = null;
+        var mergePos = 0;
+
+        List<object> userDataList = null;
+
+        while (OutgoingQueue.Count > 0)
+        {
+            var packet = OutgoingQueue.Peek();
+            if (packet.IsFragmented)
+            {
+                break;
+            }
+
+            var payloadSize = packet.Size - NetConstants.ChanneledHeaderSize;
+            var newSize = mergePos + MergeHeaderSize + payloadSize;
+            if (newSize + MergeSizeThreshold > maxPayloadSize && mergePos > 0)
+            {
+                break;
+            }
+
+            if (newSize > maxPayloadSize)
+            {
+                break;
+            }
+
+            if (mergedPacket == null)
+            {
+                mergedPacket = Peer.NetManager.PoolGetPacket(Peer.Mtu);
+                mergedPacket.Property = PacketProperty.ReliableMerged;
+                userDataList = _mergedPacketUserDataList;
+                if (userDataList == null)
+                {
+                    userDataList = new List<object>();
+                    _mergedPacketUserDataList = userDataList;
+                }
+                else
+                {
+                    userDataList.Clear();
+                }
+            }
+
+            FastBitConverter.GetBytes(mergedPacket.RawData, NetConstants.ChanneledHeaderSize + mergePos, (ushort)payloadSize);
+            Buffer.BlockCopy(packet.RawData, NetConstants.ChanneledHeaderSize, mergedPacket.RawData, NetConstants.ChanneledHeaderSize + mergePos + MergeHeaderSize, payloadSize);
+            mergePos += payloadSize + MergeHeaderSize;
+
+            if (packet.UserData != null)
+            {
+                userDataList.Add(packet.UserData);
+                packet.UserData = null;
+            }
+
+            Peer.NetManager.PoolRecycle(OutgoingQueue.Dequeue());
+        }
+
+        if (mergedPacket == null)
+        {
+            return OutgoingQueue.Dequeue();
+        }
+
+        mergedPacket.Size = NetConstants.ChanneledHeaderSize + mergePos;
+        if (userDataList.Count > 0)
+        {
+            mergedPacket.UserData = new MergedPacketUserData(userDataList.ToArray());
+        }
+
+        return mergedPacket;
+    }
+
+    private void ProcessIncomingPacket(NetPacket packet)
+    {
+        if (packet.Property == PacketProperty.ReliableMerged)
+        {
+            //ProcessMerged
+            var pos = NetConstants.ChanneledHeaderSize;
+            while (pos + MergeHeaderSize <= packet.Size)
+            {
+                var size = BitConverter.ToUInt16(packet.RawData, pos);
+                pos += MergeHeaderSize;
+                if (size == 0 || pos + size > packet.Size)
+                {
+                    NetDebug.Write("[RR]Merged packet corrupted");
+                    break;
+                }
+
+                var mergedPacket = Peer.NetManager.PoolGetPacket(NetConstants.ChanneledHeaderSize + size);
+                mergedPacket.Property = PacketProperty.Channeled;
+                mergedPacket.ChannelId = packet.ChannelId;
+                Buffer.BlockCopy(packet.RawData, pos, mergedPacket.RawData, NetConstants.ChanneledHeaderSize, size);
+                pos += size;
+
+                Peer.AddReliablePacket(_deliveryMethod, mergedPacket);
+            }
+            Peer.NetManager.PoolRecycle(packet);
+        }
+        else
+        {
+            Peer.AddReliablePacket(_deliveryMethod, packet);
+        }
+    }
+
     //ProcessAck in packet
     private void ProcessAck(NetPacket packet)
     {
@@ -107,8 +232,8 @@ internal sealed class ReliableChannel : BaseChannel
             return;
         }
 
-        ushort ackWindowStart = packet.Sequence;
-        int windowRel = NetUtils.RelativeSequenceNumber(_localWindowStart, ackWindowStart);
+        var ackWindowStart = packet.Sequence;
+        var windowRel = NetUtils.RelativeSequenceNumber(_localWindowStart, ackWindowStart);
         if (ackWindowStart >= NetConstants.MaxSequence || windowRel < 0)
         {
             NetDebug.Write("[PA]Bad window start");
@@ -122,33 +247,33 @@ internal sealed class ReliableChannel : BaseChannel
             return;
         }
 
-        byte[] acksData = packet.RawData;
+        var acksData = packet.RawData;
         lock (_pendingPackets)
         {
-            for (int pendingSeq = _localWindowStart;
+            for (var pendingSeq = _localWindowStart;
                 pendingSeq != _localSeqence;
                 pendingSeq = (pendingSeq + 1) % NetConstants.MaxSequence)
             {
-                int rel = NetUtils.RelativeSequenceNumber(pendingSeq, ackWindowStart);
+                var rel = NetUtils.RelativeSequenceNumber(pendingSeq, ackWindowStart);
                 if (rel >= _windowSize)
                 {
-                    NetDebug.Write("[PA]REL: " + rel);
+                    //NetDebug.Write($"[PA]REL: {rel}");
                     break;
                 }
 
-                int pendingIdx = pendingSeq % _windowSize;
-                int currentByte = NetConstants.ChanneledHeaderSize + pendingIdx / BitsInByte;
-                int currentBit = pendingIdx % BitsInByte;
-                if ((acksData[currentByte] & 1 << currentBit) == 0)
+                var pendingIdx = pendingSeq % _windowSize;
+                var currentByte = NetConstants.ChanneledHeaderSize + pendingIdx / BitsInByte;
+                var currentBit = pendingIdx % BitsInByte;
+                if ((acksData[currentByte] & (1 << currentBit)) == 0)
                 {
-                    if (Peer.NetManager.EnableStatistics)
+                    if (Peer.NetManager.EnableStatistics && !_pendingPackets[pendingIdx].IsEmpty)
                     {
                         Peer.Statistics.IncrementPacketLoss();
                         Peer.NetManager.Statistics.IncrementPacketLoss();
                     }
 
                     //Skip false ack
-                    NetDebug.Write($"[PA]False ack: {pendingSeq}");
+                    //NetDebug.Write($"[PA]False ack: {pendingSeq}");
                     continue;
                 }
 
@@ -160,23 +285,27 @@ internal sealed class ReliableChannel : BaseChannel
 
                 //clear packet
                 if (_pendingPackets[pendingIdx].Clear(Peer))
+                {
                     NetDebug.Write($"[PA]Removing reliableInOrder ack: {pendingSeq} - true");
+                }
             }
         }
     }
 
-    protected override bool SendNextPackets()
+    public override bool SendNextPackets()
     {
         if (_mustSendAcks)
         {
             _mustSendAcks = false;
             NetDebug.Write("[RR]SendAcks");
             lock (_outgoingAcks)
+            {
                 Peer.SendUserData(_outgoingAcks);
+            }
         }
 
-        long currentTime = DateTime.UtcNow.Ticks;
-        bool hasPendingPackets = false;
+        var currentTime = DateTime.UtcNow.Ticks;
+        var hasPendingPackets = false;
 
         lock (_pendingPackets)
         {
@@ -185,11 +314,13 @@ internal sealed class ReliableChannel : BaseChannel
             {
                 while (OutgoingQueue.Count > 0)
                 {
-                    int relate = NetUtils.RelativeSequenceNumber(_localSeqence, _localWindowStart);
+                    var relate = NetUtils.RelativeSequenceNumber(_localSeqence, _localWindowStart);
                     if (relate >= _windowSize)
+                    {
                         break;
+                    }
 
-                    var netPacket = OutgoingQueue.Dequeue();
+                    var netPacket = GetNextOutgoingPacket();
                     netPacket.Sequence = (ushort)_localSeqence;
                     netPacket.ChannelId = _id;
                     _pendingPackets[_localSeqence % _windowSize].Init(netPacket);
@@ -198,11 +329,13 @@ internal sealed class ReliableChannel : BaseChannel
             }
 
             //send
-            for (int pendingSeq = _localWindowStart; pendingSeq != _localSeqence; pendingSeq = (pendingSeq + 1) % NetConstants.MaxSequence)
+            for (var pendingSeq = _localWindowStart; pendingSeq != _localSeqence; pendingSeq = (pendingSeq + 1) % NetConstants.MaxSequence)
             {
                 // Please note: TrySend is invoked on a mutable struct, it's important to not extract it into a variable here
                 if (_pendingPackets[pendingSeq % _windowSize].TrySend(currentTime, Peer))
+                {
                     hasPendingPackets = true;
+                }
             }
         }
 
@@ -224,8 +357,8 @@ internal sealed class ReliableChannel : BaseChannel
             return false;
         }
 
-        int relate = NetUtils.RelativeSequenceNumber(seq, _remoteWindowStart);
-        int relateSeq = NetUtils.RelativeSequenceNumber(seq, _remoteSequence);
+        var relate = NetUtils.RelativeSequenceNumber(seq, _remoteWindowStart);
+        var relateSeq = NetUtils.RelativeSequenceNumber(seq, _remoteSequence);
 
         if (relateSeq > _windowSize)
         {
@@ -256,7 +389,7 @@ internal sealed class ReliableChannel : BaseChannel
             if (relate >= _windowSize)
             {
                 //New window position
-                int newWindowStart = (_remoteWindowStart + relate - _windowSize + 1) % NetConstants.MaxSequence;
+                var newWindowStart = (_remoteWindowStart + relate - _windowSize + 1) % NetConstants.MaxSequence;
                 _outgoingAcks.Sequence = (ushort)newWindowStart;
 
                 //Clean old data
@@ -277,7 +410,7 @@ internal sealed class ReliableChannel : BaseChannel
             ackIdx = seq % _windowSize;
             ackByte = NetConstants.ChanneledHeaderSize + ackIdx / BitsInByte;
             ackBit = ackIdx % BitsInByte;
-            if ((_outgoingAcks.RawData[ackByte] & 1 << ackBit) != 0)
+            if ((_outgoingAcks.RawData[ackByte] & (1 << ackBit)) != 0)
             {
                 NetDebug.Write("[RR]ReliableInOrder duplicate");
                 //because _mustSendAcks == true
@@ -295,7 +428,7 @@ internal sealed class ReliableChannel : BaseChannel
         if (seq == _remoteSequence)
         {
             NetDebug.Write("[RR]ReliableInOrder packet succes");
-            Peer.AddReliablePacket(_deliveryMethod, packet);
+            ProcessIncomingPacket(packet);
             _remoteSequence = (_remoteSequence + 1) % NetConstants.MaxSequence;
 
             if (_ordered)
@@ -305,7 +438,7 @@ internal sealed class ReliableChannel : BaseChannel
                 {
                     //process holden packet
                     _receivedPackets[_remoteSequence % _windowSize] = null;
-                    Peer.AddReliablePacket(_deliveryMethod, p);
+                    ProcessIncomingPacket(p);
                     _remoteSequence = (_remoteSequence + 1) % NetConstants.MaxSequence;
                 }
             }
@@ -329,7 +462,7 @@ internal sealed class ReliableChannel : BaseChannel
         else
         {
             _earlyReceived[ackIdx] = true;
-            Peer.AddReliablePacket(_deliveryMethod, packet);
+            ProcessIncomingPacket(packet);
         }
         return true;
     }

@@ -1,5 +1,5 @@
-﻿using EFT;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using EFT;
 
 namespace Fika.Core.Main.Utils;
 
@@ -59,6 +59,7 @@ public static class LocaleUtils
     public const string PEER_CONNECTED = "F_Client_PeerConnected";
     public const string PEER_DISCONNECTED = "F_Client_PeerDisconnected";
     public const string CONNECTING_TO_SESSION = "F_Client_ConnectingToSession";
+    public const string MISSING_KEY_FOR_LOCATION = "F_Client_MissingKeyForLocation";
     public const string ITEM_BLACKLISTED = "F_Client_ItemIsBlacklisted";
     public const string ITEM_CONTAINS_BLACKLISTED = "F_Client_ItemsContainsBlacklisted";
     public const string SAVED_PROFILE = "F_Client_SavedProfile";
@@ -136,8 +137,11 @@ public static class LocaleUtils
     public const string UI_FIKA_ALWAYS_COOP = "F_UI_FikaAlwaysCoop";
     public const string UI_UPNP_FAILED = "F_UI_UpnpFailed";
     public const string UI_INIT_WEATHER = "F_UI_InitWeather";
+    public const string UI_SCAV_NOT_READY = "F_UI_ScavNotReady";
     public const string UI_NOTIFICATION_STARTED_RAID = "F_Notification_RaidStarted";
     public const string UI_NOTIFICATION_RECEIVED_ITEM = "F_Notification_ItemReceived";
+    public const string UI_NOTIFICATION_RECEIVED_ITEM_STACK = "F_Notification_ItemStackReceived";
+    public const string UI_NOTIFICATION_RECEIVED_MULTIPLE_ITEMS = "F_Notification_MultipleItemReceived";
     public const string UI_NOTIFICATION_RAIDSETTINGS_DISABLED = "F_Notification_RaidSettingsDisabled";
     public const string UI_EXTRACT_MESSAGE = "F_UI_ExtractMessage";
     public const string UI_DOWNLOAD_PROFILE = "F_UI_DownloadProfile";
@@ -149,6 +153,17 @@ public static class LocaleUtils
     public const string UI_PLAYER_DISCONNECTED = "F_UI_PlayerDisconnected";
     public const string UI_DISABLED_BY_HOST = "F_UI_DisabledByServerHost";
     public const string UI_ERROR_RAID_INIT = "F_UI_ErrorRaidInit";
+    public const string UI_HEADLESS_CONNECTED = "F_UI_HeadlessConnected";
+    public const string UI_REVIVE_PLAYER = "F_UI_RevivePlayer";
+    public const string UI_REVIVING_PLAYER = "F_UI_RevivingPlayer";
+    public const string UI_REVIVING_DOWNED = "F_UI_Downed";
+    public const string UI_REVIVING_BEING_REVIVED = "F_UI_BeingRevived";
+    public const string UI_REVIVING_BEING_REVIVED_BY = "F_UI_BeingRevivedBy";
+    public const string UI_REVIVING_BLEEDING_OUT = "F_UI_BleedingOut";
+    public const string UI_REVIVING_GIVE_UP = "F_UI_GiveUp";
+    public const string UI_REVIVING_GIVING_UP = "F_UI_GivingUp";
+    public const string UI_REVIVING_BEEN_DOWNED = "F_UI_BeenDowned";
+    public const string UI_REVIVING_BEEN_REVIVED = "F_UI_BeenRevived";
 
     // Main Menu UI
     public const string UI_MMUI_ONLINE_PLAYERS = "F_MMUI_OnlinePlayers";
@@ -184,6 +199,8 @@ public static class LocaleUtils
     public const string BEPINEX_AUTO_EXTRACT_D = "F_BepInEx_AutoExtract_D";
     public const string BEPINEX_SHOW_EXTRACT_MESSAGE_T = "F_BepInEx_ShowExtractMessage_T";
     public const string BEPINEX_SHOW_EXTRACT_MESSAGE_D = "F_BepInEx_ShowExtractMessage_D";
+    public const string BEPINEX_SHOW_PLAYER_LIST_T = "F_BepInEx_ShowPlayersList_T";
+    public const string BEPINEX_SHOW_PLAYER_LIST_D = "F_BepInEx_ShowPlayersList_D";
     public const string BEPINEX_EXTRACT_KEY_T = "F_BepInEx_ExtractKey_T";
     public const string BEPINEX_EXTRACT_KEY_D = "F_BepInEx_ExtractKey_D";
     public const string BEPINEX_ENABLE_CHAT_T = "F_BepInEx_EnableChat_T";
@@ -229,6 +246,8 @@ public static class LocaleUtils
     public const string BEPINEX_HEALTHCOLOR_LOW_D = "F_BepInEx_HealthColorLow_D";
     public const string BEPINEX_NAMEPLATECOLOR_T = "F_BepInEx_NamePlateColor_T";
     public const string BEPINEX_NAMEPLATECOLOR_D = "F_BepInEx_NamePlateColor_D";
+    public const string BEPINEX_SHOWBROKENLIMBS_T = "F_BepInEx_ShowBrokenLimbs_T";
+    public const string BEPINEX_SHOWBROKENLIMBS_D = "F_BepInEx_ShowBrokenLimbs_D";
 
     public const string BEPINEX_QUEST_TYPES_T = "F_BepInEx_QuestTypes_T";
     public const string BEPINEX_QUEST_TYPES_D = "F_BepInEx_QuestTypes_D";
@@ -265,6 +284,9 @@ public static class LocaleUtils
     public const string BEPINEX_PING_RANGE_D = "F_BepInEx_PingRange_D";
     public const string BEPINEX_PING_SOUND_T = "F_BepInEx_PingSound_T";
     public const string BEPINEX_PING_SOUND_D = "F_BepInEx_PingSound_D";
+
+    public const string BEPINEX_REVIVE_GIVE_UP_KEY_T = "F_BepInEx_GiveUpKey_T";
+    public const string BEPINEX_REVIVE_GIVE_UP_KEY_D = "F_BepInEx_GiveUpKey_D";
 
     public const string BEPINEX_FREE_CAM_BUTTON_T = "F_BepInEx_FreeCamButton_T";
     public const string BEPINEX_FREE_CAM_BUTTON_D = "F_BepInEx_FreeCamButton_D";
@@ -311,6 +333,8 @@ public static class LocaleUtils
     public const string BEPINEX_USE_UPNP_D = "F_BepInEx_UseUPnP_D";
     public const string BEPINEX_USE_NAT_PUNCH_T = "F_BepInEx_UseNatPunch_T";
     public const string BEPINEX_USE_NAT_PUNCH_D = "F_BepInEx_UseNatPunch_D";
+    public const string BEPINEX_USE_FIKA_NAT_PUNCH_SERVER_T = "F_BepInEx_UseFikaNatPunchServer_T";
+    public const string BEPINEX_USE_FIKA_NAT_PUNCH_SERVER_D = "F_BepInEx_UseFikaNatPunchServer_D";
     public const string BEPINEX_CONNECTION_TIMEOUT_T = "F_BepInEx_ConnectionTimeout_T";
     public const string BEPINEX_CONNECTION_TIMEOUT_D = "F_BepInEx_ConnectionTimeout_D";
     public const string BEPINEX_SEND_RATE_T = "F_BepInEx_SendRate_T";
@@ -324,4 +348,6 @@ public static class LocaleUtils
 
     public const string BEPINEX_DISABLE_BOT_METABOLISM_T = "F_BepInEx_DisableBotMetabolism_T";
     public const string BEPINEX_DISABLE_BOT_METABOLISM_D = "F_BepInEx_DisableBotMetabolism_D";
+    public const string BEPINEX_STRICT_INVENTORY_SYNC_T = "F_BepInEx_StrictInventorySync_T";
+    public const string BEPINEX_STRICT_INVENTORY_SYNC_D = "F_BepInEx_StrictInventorySync_D";
 }

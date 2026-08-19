@@ -1,30 +1,66 @@
-﻿using Comfort.Common;
+﻿using JsonType;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Comfort.Common;
 using EFT;
+using EFT.GlobalEvents;
 using EFT.Interactive;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Fika.Core.Main.ClientClasses;
 
-public class ClientTransitController : GClass1906
+public class ClientTransitController : NetworkTransitController
 {
-    public ClientTransitController(BackendConfigSettingsClass.TransitSettingsClass settings, LocationSettingsClass.Location.TransitParameters[] parameters, Profile profile, LocalRaidSettings localRaidSettings)
+    public ClientTransitController(GlobalConfiguration.TransitGlobalSettings settings, LocationSettings.Location.TransitParameters[] parameters, Profile profile, LocalRaidSettings localRaidSettings)
         : base(settings, parameters)
     {
         OnPlayerEnter += OnClientPlayerEnter;
         OnPlayerExit += OnClientPlayerExit;
-        string[] array = localRaidSettings.transition.visitedLocations.EmptyIfNull().Append(localRaidSettings.location).ToArray();
-        summonedTransits[profile.Id] = new TransitDataClass(localRaidSettings.transition.transitionRaidId, localRaidSettings.transition.transitionCount, array,
+        var array = localRaidSettings.transition.visitedLocations.EmptyIfNull()
+            .Append(localRaidSettings.location)
+            .ToArray();
+        summonedTransits[profile.Id] = new Transit(localRaidSettings.transition.transitionRaidId, localRaidSettings.transition.transitionCount, array,
             localRaidSettings.transitionType.HasFlagNoBox(ELocationTransition.Event));
         TransferItemsController.InitItemControllerServer(FikaGlobals.TransitTraderId, FikaGlobals.TransitTraderName);
         _localRaidSettings = localRaidSettings;
+
+        action_0();
+
+        action_0 = GlobalEventsController.Instance.SubscribeOnEvent(new Action<TransitInitEvent>(OnInitEvent));
+
+        ReEnablePoints();
     }
 
-    public TransitInteractionPacketStruct InteractPacket { get; set; }
+    private void ReEnablePoints()
+    {
+        foreach (var transitPoint in pointsById.Values)
+        {
+            transitPoint.gameObject.SetActive(true);
+        }
+    }
+
+    private void OnInitEvent(TransitInitEvent initEvent)
+    {
+        FikaGlobals.LogInfo($"Received TransitInitEvent from server with {initEvent.Points.Count} points");
+        if (!IsTargetPlayer(initEvent.PlayerId, out var player))
+        {
+#if DEBUG
+            FikaGlobals.LogWarning($"[{initEvent.PlayerId}] was not my player");
+#endif
+            return;
+        }
+
+        /*var transit = summonedTransits[player.ProfileId];
+        summonedTransits[player.ProfileId].events = initEvent.EventPlayer;*/
+        var list = GetTransitPoints(initEvent.Points, player.Side);
+        SetTimers(list, player, false);
+        HandleExits(list, player);
+    }
+
+    public InteractWithTransitPacket InteractPacket { get; set; }
 
     private readonly LocalRaidSettings _localRaidSettings;
 
@@ -35,7 +71,8 @@ public class ClientTransitController : GClass1906
             //TransferItemsController.InitPlayerStash(player);
             if (player is FikaPlayer fikaPlayer)
             {
-                fikaPlayer.UpdateBtrTraderServiceData().HandleExceptions();
+                fikaPlayer.UpdateBtrTraderServiceData()
+                    .HandleExceptions();
             }
         }
     }
@@ -47,8 +84,8 @@ public class ClientTransitController : GClass1906
 
     public void Init()
     {
-        EnablePoints(true);
-        method_8(Dictionary_0.Values, GamePlayerOwner.MyPlayer, false);
+        /*EnablePoints(true);
+        method_8(Dictionary_0.Values, GamePlayerOwner.MyPlayer, false);*/
     }
 
     public override void Dispose()
@@ -60,25 +97,26 @@ public class ClientTransitController : GClass1906
 
     public void HandleClientExtract(int transitId, int playerId)
     {
-        if (!smethod_2(playerId, out Player myPlayer))
+        if (!IsTargetPlayer(playerId, out var myPlayer))
         {
             return;
         }
 
-        if (!Dictionary_0.TryGetValue(transitId, out TransitPoint transitPoint))
+        if (!pointsById.TryGetValue(transitId, out var transitPoint))
         {
-            FikaPlugin.Instance.FikaLogger.LogError("FikaClientTransitController::HandleClientExtract: Could not find transit point with id: " + transitId);
+            FikaGlobals.LogError("FikaClientTransitController::HandleClientExtract: Could not find transit point with id: " + transitId);
             return;
         }
 
-        string location = transitPoint.parameters.location;
-        ERaidMode eraidMode = ERaidMode.Local;
-        if (TarkovApplication.Exist(out TarkovApplication tarkovApplication))
+        var location = transitPoint.parameters.location;
+        FikaGlobals.LogInfo($"Using transit to {location}");
+        var eraidMode = ERaidMode.Local;
+        if (TarkovApplication.Exist(out var tarkovApplication))
         {
             eraidMode = ERaidMode.Local;
             tarkovApplication.transitionStatus = new(location, false, _localRaidSettings.playerSide, eraidMode, _localRaidSettings.timeVariant);
         }
-        string profileId = myPlayer.ProfileId;
+        var profileId = myPlayer.ProfileId;
         Dictionary<string, ProfileKey> profileKeys = [];
         profileKeys.Add(profileId, new()
         {
@@ -87,7 +125,7 @@ public class ClientTransitController : GClass1906
             isSolo = true
         });
 
-        AlreadyTransitDataClass gclass = new()
+        LocationTransit gclass = new()
         {
             hash = Guid.NewGuid().ToString(),
             playersCount = 1,
@@ -101,7 +139,7 @@ public class ClientTransitController : GClass1906
         };
 
         alreadyTransits.Add(profileId, gclass);
-        IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+        var fikaGame = Singleton<IFikaGame>.Instance;
         if (fikaGame == null || fikaGame is not CoopGame coopGame)
         {
             FikaGlobals.LogError("FikaGame was null or not CoopGame");
@@ -112,5 +150,22 @@ public class ClientTransitController : GClass1906
         {
             coopGame.Extract((FikaPlayer)myPlayer, null, transitPoint);
         }
+    }
+
+    public void UpdateTimers()
+    {
+        var list = new List<TransitPoint>();
+        foreach (var transitPoint in pointsById.Values)
+        {
+            if (!IsVisibleTransitPoint(transitPoint))
+            {
+                _waitForVisibleTransitPoints.Add(transitPoint);
+            }
+            else
+            {
+                list.Add(transitPoint);
+            }
+        }
+        SetTimers(list, GamePlayerOwner.MyPlayer, false);
     }
 }

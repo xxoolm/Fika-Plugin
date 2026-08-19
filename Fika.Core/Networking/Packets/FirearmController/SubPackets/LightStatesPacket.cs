@@ -1,4 +1,5 @@
-﻿using Fika.Core.Main.ObservedClasses.HandsControllers;
+﻿using EFT;
+using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
 
@@ -11,9 +12,9 @@ public sealed class LightStatesPacket : IPoolSubPacket
 
     }
 
-    public static LightStatesPacket FromValue(int amount, FirearmLightStateStruct[] states)
+    public static LightStatesPacket FromValue(int amount, LightsState[] states)
     {
-        LightStatesPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<LightStatesPacket>(EFirearmSubPacketType.ToggleLightStates);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<LightStatesPacket>(EFirearmSubPacketType.ToggleLightStates);
         packet.Amount = amount;
         packet.States = states;
         return packet;
@@ -25,7 +26,7 @@ public sealed class LightStatesPacket : IPoolSubPacket
     }
 
     public int Amount;
-    public FirearmLightStateStruct[] States;
+    public LightsState[] States;
 
     public void Execute(FikaPlayer player)
     {
@@ -40,7 +41,7 @@ public sealed class LightStatesPacket : IPoolSubPacket
         writer.Put(Amount);
         if (Amount > 0)
         {
-            for (int i = 0; i < Amount; i++)
+            for (var i = 0; i < Amount; i++)
             {
                 writer.Put(States[i].Id);
                 writer.Put(States[i].IsActive);
@@ -54,8 +55,8 @@ public sealed class LightStatesPacket : IPoolSubPacket
         Amount = reader.GetInt();
         if (Amount > 0)
         {
-            States = new FirearmLightStateStruct[Amount];
-            for (int i = 0; i < Amount; i++)
+            States = new LightsState[Amount];
+            for (var i = 0; i < Amount; i++)
             {
                 States[i] = new()
                 {

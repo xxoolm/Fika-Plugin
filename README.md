@@ -6,6 +6,7 @@
 ![Issues](https://img.shields.io/github/issues/project-fika/Fika-Plugin?style=plastic&logo=github)
 [![License](https://img.shields.io/badge/CC--BY--NC--SA--4.0-blue?style=plastic&logo=creativecommons&logoColor=FFFFFF&label=License)](https://github.com/project-fika/Fika-Plugin/blob/main/LICENSE.md)
 [![Crowdin](https://badges.crowdin.net/project-fika/localized.svg)](https://crowdin.com/project/project-fika)
+[![.NET Test](https://github.com/project-fika/Fika-Plugin/actions/workflows/dotnet.yml/badge.svg)](https://github.com/project-fika/Fika-Plugin/actions/workflows/dotnet.yml)
 
 Client-side changes to make multiplayer work.
 
@@ -13,13 +14,17 @@ Client-side changes to make multiplayer work.
 
 Fully functional with minimal bugs.
 
-- 99.99% of all base game features are replicating and working properly
-- Multi-threaded interpolation for performance
-- Compressed packets using bitpacking and flags (Fika is very light-weight and efficient)
+- All base game features are replicating and working properly
+- Unique interpolation system inspired by the id Tech 3 networking model
+- Extremely efficient bandwidth usage
 - Headless client to off-load AI (see [Fika-Headless](https://github.com/project-fika/Fika-Headless) repo)
 - Base game bug fixes that have been unfixed for years
 - Base game performance fixes
 - DNS support
+- Works with all mods that are developed without hacky workarounds
+
+## Supported OS
+Fika is meant to be ran on Windows 10/11. Any other OS might work, but is not officially supported nor do we develop for them. Please respect this when creating an issue/bug report.
 
 ## Contributing
 
@@ -30,7 +35,7 @@ It is recommended to check in with our developers on Discord before spending tim
 ## Requirements
 
 - [Visual Studio Code](https://code.visualstudio.com/)
-- [.NET SDK 8.0.x](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+- [.NET SDK 10.0.x](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 
 ## Setup
 
@@ -65,6 +70,5 @@ SPT.Modules | [NCSA](https://dev.sp-tarkov.com/SPT/Modules/src/branch/master/LIC
 SIT         | [NCSA](./Licenses/LICENSE-SIT.md) (`Forked from SIT.Client master:9de30d8`)
 Open.NAT    | [MIT](https://github.com/lontivero/Open.NAT/blob/master/LICENSE) (for UPnP implementation)
 LiteNetLib  | [MIT](https://github.com/RevenantX/LiteNetLib/blob/master/LICENSE.txt) (for P2P UDP implementation)
-Mirror Networking  | [MIT](https://github.com/MirrorNetworking/Mirror/blob/master/LICENSE) (for Snapshot Interpolation implementation)
 
 <a href="https://crowdin.com/?utm_term=click-badge-add-on" rel="nofollow"><img style="width:140;height:40px" src="https://badges.crowdin.net/badge/light/crowdin-on-dark.png" srcset="https://badges.crowdin.net/badge/light/crowdin-on-dark.png 1x,https://badges.crowdin.net/badge/light/crowdin-on-dark@2x.png 2x" alt="Crowdin | Agile localization for tech companies" /></a>

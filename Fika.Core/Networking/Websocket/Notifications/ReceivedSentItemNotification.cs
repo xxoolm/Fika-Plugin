@@ -1,11 +1,13 @@
-﻿using EFT.Communications;
+﻿using System;
+using EFT;
+using EFT.Communications;
 using Fika.Core.Main.Utils;
 using Newtonsoft.Json;
 using static Fika.Core.UI.FikaUIGlobals;
 
 namespace Fika.Core.Networking.Websocket.Notifications;
 
-public class ReceivedSentItemNotification : NotificationAbstractClass
+public sealed class ReceivedSentItemNotification : Notification
 {
     public override ENotificationIconType Icon
     {
@@ -19,6 +21,20 @@ public class ReceivedSentItemNotification : NotificationAbstractClass
     {
         get
         {
+            if (Multiple)
+            {
+                return string.Format(LocaleUtils.UI_NOTIFICATION_RECEIVED_MULTIPLE_ITEMS.Localized(),
+                ColorizeText(EColor.GREEN, Nickname));
+            }
+
+            if (StackCount > 1d)
+            {
+                return string.Format(LocaleUtils.UI_NOTIFICATION_RECEIVED_ITEM_STACK.Localized(),
+                (int)Math.Round(StackCount, MidpointRounding.AwayFromZero),
+                ColorizeText(EColor.BLUE, ItemName.Localized()),
+                ColorizeText(EColor.GREEN, Nickname));
+            }
+
             return string.Format(LocaleUtils.UI_NOTIFICATION_RECEIVED_ITEM.Localized(),
                 ColorizeText(EColor.BLUE, ItemName.Localized()),
                 ColorizeText(EColor.GREEN, Nickname));
@@ -33,4 +49,10 @@ public class ReceivedSentItemNotification : NotificationAbstractClass
 
     [JsonProperty("itemName")]
     public string ItemName;
+
+    [JsonProperty("stackCount")]
+    public double StackCount;
+
+    [JsonProperty("multiple")]
+    public bool Multiple;
 }

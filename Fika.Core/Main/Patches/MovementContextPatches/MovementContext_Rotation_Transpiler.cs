@@ -1,13 +1,13 @@
-﻿using EFT;
+﻿using System.Collections.Generic;
+using System.Reflection;
+using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
-using System.Collections.Generic;
-using System.Reflection;
 
 namespace Fika.Core.Main.Patches.MovementContextPatches;
 
 /// <summary>
-/// Stops unnecessary static lookups to <see cref="BackendConfigAbstractClass.Config"/>
+/// Stops unnecessary static lookups to <see cref="AppEnvironment.Config"/>
 /// </summary>
 internal class MovementContext_Rotation_Transpiler : ModulePatch
 {

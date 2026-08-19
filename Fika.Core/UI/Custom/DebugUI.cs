@@ -1,12 +1,11 @@
+using EFT.Ballistics;
+using System.Collections.Generic;
 using Comfort.Common;
 using EFT.UI;
-using Fika.Core;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
-using Mono.Cecil.Cil;
-using System.Collections.Generic;
 using TMPro;
 
 public class DebugUI : MonoBehaviour
@@ -23,8 +22,9 @@ public class DebugUI : MonoBehaviour
     private const float _serverHeight = 90f;
     private const float _clientHeight = 130f;
 
+    private FikaServer _server;
     private CoopHandler _coopHandler;
-    private int _frameCounter;
+    private float _frameCounter;
     private bool _isServer;
     private List<FikaPlayer> _alivePlayers;
     private List<FikaPlayer> _aliveBots;
@@ -53,9 +53,15 @@ public class DebugUI : MonoBehaviour
         }
     }
 
+    private Color DefaultColor;
+
     protected void Awake()
     {
         _isServer = FikaBackendUtils.IsServer;
+        if (_isServer)
+        {
+            _server = Singleton<FikaServer>.Instance;
+        }
 
         if (CoopHandler.TryGetCoopHandler(out var coopHandler))
         {
@@ -69,6 +75,8 @@ public class DebugUI : MonoBehaviour
             FikaGlobals.LogError("FikaDebug: CoopHandler was null!");
             Destroy(gameObject);
         }
+
+        DefaultColor = AlivePlayersText.color;
 
         var sizeDelta = Frame.sizeDelta;
         var borderSizeDelta = Border.sizeDelta;
@@ -95,25 +103,76 @@ public class DebugUI : MonoBehaviour
 
     protected void Update()
     {
-        _frameCounter++;
-        if (_frameCounter % 300 == 0)
+        _frameCounter += Time.unscaledDeltaTime;
+        if (_frameCounter >= 5f)
         {
-            _frameCounter = 0;
+            _frameCounter = 0f;
             CheckAndAdd();
         }
 
-        AlivePlayersText.SetText($"Alive Players: {_alivePlayers.Count}");
-        AliveBotsText.SetText($"Alive Bots: {_aliveBots.Count}");
+        AlivePlayersText.SetText("Alive Players: {0}", _alivePlayers.Count);
+        AliveBotsText.SetText("Alive Bots: {0}", _aliveBots.Count);
         if (_isServer)
         {
-            ClientsText.SetText($"Clients: {Singleton<FikaServer>.Instance.NetServer.ConnectedPeersCount}");
+            ClientsText.SetText("Clients: {0}", _server.NetServer.ConnectedPeersCount);
         }
         else
         {
-            PingText.SetText($"Ping: {Ping}");
-            RTTText.SetText($"RTT: {RTT}");
-            ServerFPSText.SetText($"Server FPS: {ServerFPS}");
+            var ping = Ping;
+            PingText.SetText("Ping: {0}", ping);
+            PingText.color = GetPingColor(ping);
+            var rtt = RTT;
+            RTTText.SetText("RTT: {0}", rtt);
+            RTTText.color = GetRTTColor(rtt);
+            var serverFps = ServerFPS;
+            ServerFPSText.SetText("Server FPS: {0}", serverFps);
+            ServerFPSText.color = GetServerFPSColor(serverFps);
         }
+    }
+
+    private Color GetServerFPSColor(int serverFps)
+    {
+        if (serverFps < 30)
+        {
+            return Color.red;
+        }
+
+        if (serverFps < 50)
+        {
+            return Color.yellow;
+        }
+
+        return DefaultColor;
+    }
+
+    private Color GetRTTColor(int rtt)
+    {
+        if (rtt < 0.0 || rtt > 120.0)
+        {
+            return Color.red;
+        }
+
+        if (rtt > 60.0)
+        {
+            return Color.yellow;
+        }
+
+        return DefaultColor;
+    }
+
+    private Color GetPingColor(int ping)
+    {
+        if (ping <= 75)
+        {
+            return DefaultColor;
+        }
+
+        if (ping <= 125)
+        {
+            return Color.yellow;
+        }
+
+        return Color.red;
     }
 
     private void CheckAndAdd()
@@ -162,7 +221,7 @@ public class DebugUI : MonoBehaviour
         _alivePlayers.Add(player);
     }
 
-    private void PlayerDied(EFT.Player player, EFT.IPlayer lastAggressor, DamageInfoStruct damageInfo, EBodyPart part)
+    private void PlayerDied(EFT.Player player, EFT.IPlayer lastAggressor, DamageInfo damageInfo, EBodyPart part)
     {
         player.OnPlayerDead -= PlayerDied;
         _alivePlayers.Remove((FikaPlayer)player);
@@ -174,7 +233,7 @@ public class DebugUI : MonoBehaviour
         _aliveBots.Add(bot);
     }
 
-    private void BotDied(EFT.Player player, EFT.IPlayer lastAggressor, DamageInfoStruct damageInfo, EBodyPart part)
+    private void BotDied(EFT.Player player, EFT.IPlayer lastAggressor, DamageInfo damageInfo, EBodyPart part)
     {
         player.OnPlayerDead -= BotDied;
         _aliveBots.Remove((FikaPlayer)player);

@@ -1,4 +1,6 @@
-﻿using Comfort.Common;
+﻿using System.Collections.Generic;
+using System.Linq;
+using Comfort.Common;
 using EFT;
 using EFT.Interactive;
 using EFT.Interactive.SecretExfiltrations;
@@ -7,8 +9,6 @@ using Fika.Core.Main.Players;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Fika.Core.Main.Components;
 
@@ -90,9 +90,9 @@ public class FikaExfilManager : MonoBehaviour
             exfiltrationPoint.OnStartExtraction += ExfiltrationPoint_OnStartExtraction;
             exfiltrationPoint.OnCancelExtraction += ExfiltrationPoint_OnCancelExtraction;
             exfiltrationPoint.OnStatusChanged += ExfiltrationPoint_OnStatusChanged;
-            exfiltrationPoint.OnStatusChanged += _game.method_10;
+            exfiltrationPoint.OnStatusChanged += _game.OnStatusChangedHandler;
             _game.UpdateExfiltrationUi(exfiltrationPoint, false, true);
-            if (FikaPlugin.Instance.DynamicVExfils && exfiltrationPoint.Settings.PlayersCount > 0 && exfiltrationPoint.Settings.PlayersCount < Singleton<IFikaNetworkManager>.Instance.PlayerAmount)
+            if (FikaPlugin.Instance.Settings.DynamicVExfils && exfiltrationPoint.Settings.PlayersCount > 0 && exfiltrationPoint.Settings.PlayersCount < Singleton<IFikaNetworkManager>.Instance.PlayerAmount)
             {
                 exfiltrationPoint.Settings.PlayersCount = Singleton<IFikaNetworkManager>.Instance.PlayerAmount;
             }
@@ -104,7 +104,7 @@ public class FikaExfilManager : MonoBehaviour
             secretExfiltrationPoint.OnStartExtraction += ExfiltrationPoint_OnStartExtraction;
             secretExfiltrationPoint.OnCancelExtraction += ExfiltrationPoint_OnCancelExtraction;
             secretExfiltrationPoint.OnStatusChanged += ExfiltrationPoint_OnStatusChanged;
-            secretExfiltrationPoint.OnStatusChanged += _game.method_10;
+            secretExfiltrationPoint.OnStatusChanged += _game.OnStatusChangedHandler;
             secretExfiltrationPoint.OnStatusChanged += _game.ShowNewSecretExit;
             _game.UpdateExfiltrationUi(secretExfiltrationPoint, false, true);
             secretExfiltrationPoint.OnPointFoundEvent += SecretExfiltrationPoint_OnPointFoundEvent;
@@ -134,7 +134,7 @@ public class FikaExfilManager : MonoBehaviour
                 exfiltrationPoint.OnStartExtraction -= ExfiltrationPoint_OnStartExtraction;
                 exfiltrationPoint.OnCancelExtraction -= ExfiltrationPoint_OnCancelExtraction;
                 exfiltrationPoint.OnStatusChanged -= ExfiltrationPoint_OnStatusChanged;
-                exfiltrationPoint.OnStatusChanged -= _game.method_10;
+                exfiltrationPoint.OnStatusChanged -= _game.OnStatusChangedHandler;
                 exfiltrationPoint.Disable();
             }
         }
@@ -147,7 +147,7 @@ public class FikaExfilManager : MonoBehaviour
                 secretExfiltrationPoint.OnStartExtraction -= ExfiltrationPoint_OnStartExtraction;
                 secretExfiltrationPoint.OnCancelExtraction -= ExfiltrationPoint_OnCancelExtraction;
                 secretExfiltrationPoint.OnStatusChanged -= ExfiltrationPoint_OnStatusChanged;
-                secretExfiltrationPoint.OnStatusChanged -= _game.method_10;
+                secretExfiltrationPoint.OnStatusChanged -= _game.OnStatusChangedHandler;
                 secretExfiltrationPoint.OnStatusChanged -= _game.ShowNewSecretExit;
                 secretExfiltrationPoint.OnPointFoundEvent -= SecretExfiltrationPoint_OnPointFoundEvent;
                 secretExfiltrationPoint.Disable();

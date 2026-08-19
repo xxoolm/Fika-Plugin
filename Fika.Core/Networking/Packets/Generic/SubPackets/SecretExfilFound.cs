@@ -1,4 +1,5 @@
-﻿using EFT.Interactive.SecretExfiltrations;
+﻿using EFT.GlobalEvents;
+using EFT.Interactive.SecretExfiltrations;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
 
@@ -18,7 +19,7 @@ public sealed class SecretExfilFound : IPoolSubPacket
 
     public static SecretExfilFound FromValue(string groupId, string exitName)
     {
-        SecretExfilFound packet = GenericSubPacketPoolManager.Instance.GetPacket<SecretExfilFound>(EGenericSubPacketType.SecretExfilFound);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<SecretExfilFound>(EGenericSubPacketType.SecretExfilFound);
         packet.GroupId = groupId;
         packet.ExitName = exitName;
         return packet;
@@ -26,7 +27,7 @@ public sealed class SecretExfilFound : IPoolSubPacket
 
     public void Execute(FikaPlayer player = null)
     {
-        GlobalEventHandlerClass.Instance
+        GlobalEventsController.Instance
             .CreateCommonEvent<SecretExfiltrationPointFoundShareEvent>()
             .Invoke(GroupId, GroupId, ExitName);
     }

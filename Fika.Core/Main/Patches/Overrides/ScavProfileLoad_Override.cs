@@ -1,6 +1,6 @@
-﻿using EFT;
+﻿using System.Reflection;
+using EFT;
 using SPT.Reflection.Patching;
-using System.Reflection;
 
 namespace Fika.Core.Main.Patches.Overrides;
 
@@ -8,7 +8,7 @@ internal class ScavProfileLoad_Override : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(TarkovApplication).GetMethod(nameof(TarkovApplication.method_52));
+        return typeof(TarkovApplication).GetMethod(nameof(TarkovApplication.OnGameEnd));
     }
 
     [PatchPrefix]

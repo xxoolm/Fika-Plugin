@@ -1,6 +1,6 @@
-﻿using EFT.Achievements;
+﻿using System.Reflection;
+using EFT.Achievements;
 using SPT.Reflection.Patching;
-using System.Reflection;
 using TMPro;
 
 namespace Fika.Core.UI.Patches;
@@ -12,8 +12,7 @@ public class AchievementView_Show_Patch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(AchievementView)
-            .GetMethod(nameof(AchievementView.Show));
+        return typeof(AchievementView).GetMethod("EFT.Achievements.IAchievementView.Show", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
     }
 
     [PatchPostfix]

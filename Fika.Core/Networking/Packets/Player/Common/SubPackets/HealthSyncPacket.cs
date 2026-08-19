@@ -1,11 +1,12 @@
-﻿using EFT;
+using EFT.HealthSystem;
+using System.Collections.Generic;
+using EFT;
 using EFT.InventoryLogic;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
-using System.Collections.Generic;
-using static NetworkHealthSyncPacketStruct;
-using static NetworkHealthSyncPacketStruct.NetworkHealthExtraDataTypeStruct;
+using static EFT.HealthSystem.SyncHealthPacket;
+using static EFT.HealthSystem.SyncHealthPacket.SyncAddEffect;
 
 namespace Fika.Core.Networking.Packets.Player.Common.SubPackets;
 
@@ -18,16 +19,16 @@ public sealed class HealthSyncPacket : IPoolSubPacket
         return new();
     }
 
-    public NetworkHealthSyncPacketStruct Packet;
+    public SyncHealthPacket Packet;
     public MongoID? KillerId;
     public MongoID? WeaponId;
     public EBodyPart BodyPart;
     public CorpseSyncPackets CorpseSyncPacket;
     public List<string> TriggerZones = new(4);
 
-    public static HealthSyncPacket FromValue(NetworkHealthSyncPacketStruct value)
+    public static HealthSyncPacket FromValue(SyncHealthPacket value)
     {
-        HealthSyncPacket packet = CommonSubPacketPoolManager.Instance.GetPacket<HealthSyncPacket>(ECommonSubPacketType.HealthSync);
+        var packet = CommonSubPacketPoolManager.Instance.GetPacket<HealthSyncPacket>(ECommonSubPacketType.HealthSync);
         packet.Packet = value;
         return packet;
     }
@@ -47,26 +48,31 @@ public sealed class HealthSyncPacket : IPoolSubPacket
                 {
                     observedPlayer.TriggerZones.AddRange(TriggerZones);
                 }
+                if (!observedPlayer.NetworkHealthController.IsAlive) // prevent downed players from not fully dying
+                {
+                    observedPlayer.NetworkHealthController.IsAlive = true;
+                }
             }
             observedPlayer.NetworkHealthController.HandleSyncPacket(Packet);
             return;
         }
+
         FikaGlobals.LogError($"OnHealthSyncPacketReceived::Player with id {player.NetId} was not observed. Name: {player.Profile.GetCorrectedNickname()}");
     }
 
     public void Deserialize(NetDataReader reader)
     {
-        NetworkHealthSyncPacketStruct packet = new()
+        SyncHealthPacket packet = new()
         {
             SyncType = reader.GetEnum<ESyncType>()
         };
-        ref NetworkHealthDataPacketStruct data = ref packet.Data;
+        ref var data = ref packet.Data;
 
         switch (packet.SyncType)
         {
             case ESyncType.AddEffect:
                 {
-                    ref NetworkHealthExtraDataTypeStruct addEffect = ref data.AddEffect;
+                    ref var addEffect = ref data.AddEffect;
                     addEffect.EffectId = reader.GetInt();
                     addEffect.Type = reader.GetByte();
                     addEffect.BodyPart = reader.GetEnum<EBodyPart>();
@@ -96,32 +102,32 @@ public sealed class HealthSyncPacket : IPoolSubPacket
                 break;
 
             case ESyncType.EffectNextState:
-                ref GStruct400 ens = ref data.EffectNextState;
+                ref var ens = ref data.EffectNextState;
                 ens.EffectId = reader.GetInt();
                 ens.StateTime = reader.GetFloat();
                 break;
 
             case ESyncType.EffectStateTime:
-                ref GStruct401 est = ref data.EffectStateTime;
+                ref var est = ref data.EffectStateTime;
                 est.EffectId = reader.GetInt();
                 est.RemainingStateTime = reader.GetFloat();
                 break;
 
             case ESyncType.EffectStrength:
-                ref GStruct402 estr = ref data.EffectStrength;
+                ref var estr = ref data.EffectStrength;
                 estr.EffectId = reader.GetInt();
                 estr.Strength = reader.GetPackedFloat(0f, 27f, EFloatCompression.High);
                 break;
 
             case ESyncType.EffectMedResource:
-                ref GStruct403 emr = ref data.EffectMedResource;
+                ref var emr = ref data.EffectMedResource;
                 emr.EffectId = reader.GetInt();
                 emr.Resource = reader.GetPackedFloat(-1f, 3000f);
                 break;
 
             case ESyncType.EffectStimulatorBuff:
                 {
-                    ref GStruct404 stim = ref data.EffectStimulatorBuff;
+                    ref var stim = ref data.EffectStimulatorBuff;
                     stim.EffectId = reader.GetInt();
                     stim.BuffIndex = reader.GetPackedInt(0, 63);
                     stim.BuffActivate = reader.GetBool();
@@ -137,7 +143,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.IsAlive:
                 {
-                    ref GStruct405 alive = ref data.IsAlive;
+                    ref var alive = ref data.IsAlive;
                     alive.IsAlive = reader.GetBool();
 
                     if (!alive.IsAlive)
@@ -148,7 +154,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
                         BodyPart = reader.GetEnum<EBodyPart>();
                         CorpseSyncPacket = reader.GetCorpseSyncPacket();
                         int count = reader.GetByte();
-                        for (int i = 0; i < count; i++)
+                        for (var i = 0; i < count; i++)
                         {
                             TriggerZones.Add(reader.GetString());
                         }
@@ -158,7 +164,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.BodyHealth:
                 {
-                    ref GStruct406 bh = ref data.BodyHealth;
+                    ref var bh = ref data.BodyHealth;
                     bh.BodyPart = reader.GetEnum<EBodyPart>();
                     bh.Value = reader.GetFloat();
                     break;
@@ -182,7 +188,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.ApplyDamage:
                 {
-                    ref GStruct410 dmg = ref data.ApplyDamage;
+                    ref var dmg = ref data.ApplyDamage;
                     dmg.BodyPart = reader.GetEnum<EBodyPart>();
                     dmg.Damage = reader.GetFloat();
                     dmg.DamageType = reader.GetEnum<EDamageType>();
@@ -191,7 +197,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.DestroyedBodyPart:
                 {
-                    ref GStruct411 destroyed = ref data.DestroyedBodyPart;
+                    ref var destroyed = ref data.DestroyedBodyPart;
                     destroyed.BodyPart = reader.GetEnum<EBodyPart>();
                     destroyed.IsDestroyed = reader.GetBool();
 
@@ -208,7 +214,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.HealthRates:
                 {
-                    ref GStruct412 rates = ref data.HealthRates;
+                    ref var rates = ref data.HealthRates;
                     rates.HealRate = reader.GetPackedFloat(0f, 3000f, EFloatCompression.High);
                     rates.DamageRate = reader.GetPackedFloat(-1000f, 0f, EFloatCompression.High);
                     rates.DamageMultiplier = reader.GetPackedFloat(0f, 2f, EFloatCompression.High);
@@ -224,7 +230,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.BurnEyes:
                 {
-                    ref GStruct414 burn = ref data.BurnEyes;
+                    ref var burn = ref data.BurnEyes;
                     burn.Position = reader.GetUnmanaged<Vector3>();
                     burn.DistanceStrength = reader.GetFloat();
                     burn.NormalTime = reader.GetFloat();
@@ -245,14 +251,14 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
     public void Serialize(NetDataWriter writer)
     {
-        ref readonly NetworkHealthDataPacketStruct packet = ref Packet.Data;
+        ref readonly var packet = ref Packet.Data;
         writer.PutEnum(Packet.SyncType);
 
         switch (Packet.SyncType)
         {
             case ESyncType.AddEffect:
                 {
-                    ref readonly NetworkHealthExtraDataTypeStruct addEffect = ref packet.AddEffect;
+                    ref readonly var addEffect = ref packet.AddEffect;
                     writer.Put(addEffect.EffectId);
                     writer.Put(addEffect.Type);
                     writer.PutEnum(addEffect.BodyPart);
@@ -282,7 +288,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.EffectNextState:
                 {
-                    ref readonly GStruct400 ens = ref packet.EffectNextState;
+                    ref readonly var ens = ref packet.EffectNextState;
                     writer.Put(ens.EffectId);
                     writer.Put(ens.StateTime);
                     break;
@@ -290,7 +296,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.EffectStateTime:
                 {
-                    ref readonly GStruct401 est = ref packet.EffectStateTime;
+                    ref readonly var est = ref packet.EffectStateTime;
                     writer.Put(est.EffectId);
                     writer.Put(est.RemainingStateTime);
                     break;
@@ -298,7 +304,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.EffectStrength:
                 {
-                    ref readonly GStruct402 estr = ref packet.EffectStrength;
+                    ref readonly var estr = ref packet.EffectStrength;
                     writer.Put(estr.EffectId);
                     writer.PutPackedFloat(estr.Strength, 0f, 27f, EFloatCompression.High);
                     break;
@@ -306,7 +312,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.EffectMedResource:
                 {
-                    ref readonly GStruct403 emr = ref packet.EffectMedResource;
+                    ref readonly var emr = ref packet.EffectMedResource;
                     writer.Put(emr.EffectId);
                     writer.PutPackedFloat(emr.Resource, -1f, 3000f);
                     break;
@@ -314,7 +320,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.EffectStimulatorBuff:
                 {
-                    ref readonly GStruct404 stim = ref packet.EffectStimulatorBuff;
+                    ref readonly var stim = ref packet.EffectStimulatorBuff;
                     writer.Put(stim.EffectId);
                     writer.PutPackedInt(stim.BuffIndex, 0, 63);
                     writer.Put(stim.BuffActivate);
@@ -329,7 +335,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.IsAlive:
                 {
-                    ref readonly GStruct405 alive = ref packet.IsAlive;
+                    ref readonly var alive = ref packet.IsAlive;
                     writer.Put(alive.IsAlive);
                     if (!alive.IsAlive)
                     {
@@ -339,7 +345,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
                         writer.PutEnum(BodyPart);
                         writer.PutCorpseSyncPacket(CorpseSyncPacket);
                         writer.Put((byte)TriggerZones.Count);
-                        for (int i = 0; i < TriggerZones.Count; i++)
+                        for (var i = 0; i < TriggerZones.Count; i++)
                         {
                             writer.Put(TriggerZones[i]);
                         }
@@ -349,7 +355,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.BodyHealth:
                 {
-                    ref readonly GStruct406 bh = ref packet.BodyHealth;
+                    ref readonly var bh = ref packet.BodyHealth;
                     writer.PutEnum(bh.BodyPart);
                     writer.Put(bh.Value);
                     break;
@@ -373,7 +379,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.ApplyDamage:
                 {
-                    ref readonly GStruct410 dmg = ref packet.ApplyDamage;
+                    ref readonly var dmg = ref packet.ApplyDamage;
                     writer.PutEnum(dmg.BodyPart);
                     writer.Put(dmg.Damage);
                     writer.PutEnum(dmg.DamageType);
@@ -382,7 +388,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.DestroyedBodyPart:
                 {
-                    ref readonly GStruct411 destroyed = ref packet.DestroyedBodyPart;
+                    ref readonly var destroyed = ref packet.DestroyedBodyPart;
                     writer.PutEnum(destroyed.BodyPart);
                     writer.Put(destroyed.IsDestroyed);
                     if (destroyed.IsDestroyed)
@@ -399,7 +405,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.HealthRates:
                 {
-                    ref readonly GStruct412 rates = ref packet.HealthRates;
+                    ref readonly var rates = ref packet.HealthRates;
                     writer.PutPackedFloat(rates.HealRate, 0f, 3000f, EFloatCompression.High);
                     writer.PutPackedFloat(rates.DamageRate, -1000f, 0f, EFloatCompression.High);
                     writer.PutPackedFloat(rates.DamageMultiplier, 0f, 2f, EFloatCompression.High);
@@ -415,7 +421,7 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
             case ESyncType.BurnEyes:
                 {
-                    ref readonly GStruct414 burn = ref packet.BurnEyes;
+                    ref readonly var burn = ref packet.BurnEyes;
                     writer.PutUnmanaged(burn.Position);
                     writer.Put(burn.DistanceStrength);
                     writer.Put(burn.NormalTime);
@@ -448,14 +454,13 @@ public sealed class HealthSyncPacket : IPoolSubPacket
 
 public struct CorpseSyncPackets
 {
-    public InventoryDescriptorClass InventoryDescriptor;
+    public ItemDescriptor InventoryDescriptor;
     public Item ItemInHands;
 
     public EBodyPartColliderType BodyPartColliderType;
 
     public Vector3 Direction;
     public Vector3 Point;
-    public Vector3 OverallVelocity;
 
     public float Force;
 

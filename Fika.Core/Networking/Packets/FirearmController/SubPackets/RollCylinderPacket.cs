@@ -1,4 +1,5 @@
-﻿using Fika.Core.Main.ObservedClasses.HandsControllers;
+﻿using EFT.InventoryLogic;
+using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Pooling;
 
@@ -13,7 +14,7 @@ public sealed class RollCylinderPacket : IPoolSubPacket
 
     public static RollCylinderPacket FromValue(bool rollToZeroCamora)
     {
-        RollCylinderPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<RollCylinderPacket>(EFirearmSubPacketType.RollCylinder);
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<RollCylinderPacket>(EFirearmSubPacketType.RollCylinder);
         packet.RollToZeroCamora = rollToZeroCamora;
         return packet;
     }
@@ -27,7 +28,7 @@ public sealed class RollCylinderPacket : IPoolSubPacket
 
     public void Execute(FikaPlayer player)
     {
-        if (player.HandsController is ObservedFirearmController controller && controller.Weapon is RevolverItemClass)
+        if (player.HandsController is ObservedFirearmController controller && controller.Weapon is Revolver)
         {
             controller.RollCylinder(RollToZeroCamora);
         }

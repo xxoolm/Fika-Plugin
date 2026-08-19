@@ -1,33 +1,29 @@
-﻿using EFT;
+﻿using System.Collections.Generic;
+using EFT;
+using Fika.Core.Main.Utils;
 using Newtonsoft.Json;
 using SPT.Common.Http;
-using System.Collections.Generic;
 
 namespace Fika.Core.Main.Custom;
 
-public class BotDifficulties : Dictionary<string, BotDifficulties.RoleData>
+public sealed class BotDifficulties : Dictionary<string, BotDifficulties.RoleData>
 {
-    public CoreBotSettingsClass CoreSettings
+    public BotGlobalsCoreSettings CoreSettings
     {
         get
         {
-            FikaPlugin.Instance.FikaLogger.LogInfo("Retrieving Core settings");
-            if (_coreSettings != null)
-            {
-                return _coreSettings;
-            }
-
-            return null;
+            FikaGlobals.LogInfo("Retrieving Core settings");
+            return _coreSettings ?? null;
         }
     }
 
     [JsonIgnore]
-    private readonly CoreBotSettingsClass _coreSettings;
+    private readonly BotGlobalsCoreSettings _coreSettings;
 
     public BotDifficulties()
     {
-        string coreString = RequestHandler.GetJson("/singleplayer/settings/bot/difficulty/core/core");
-        _coreSettings = JsonConvert.DeserializeObject<CoreBotSettingsClass>(coreString);
+        var coreString = RequestHandler.GetJson("/singleplayer/settings/bot/difficulty/core/core");
+        _coreSettings = JsonConvert.DeserializeObject<BotGlobalsCoreSettings>(coreString);
 
         // Adjust wave coefs so that wave settings do something
         _coreSettings.WAVE_COEF_LOW = 0.5f;
@@ -37,17 +33,17 @@ public class BotDifficulties : Dictionary<string, BotDifficulties.RoleData>
     public BotSettingsComponents GetComponent(BotDifficulty botDifficulty, WildSpawnType role)
     {
 #if DEBUG
-        FikaPlugin.Instance.FikaLogger.LogInfo($"Retrieving data for: {role}, difficulty: {botDifficulty}");
+        FikaGlobals.LogInfo($"Retrieving data for: {role}, difficulty: {botDifficulty}");
 #endif
-        if (TryGetValue(role.ToString().ToLower(), out RoleData value))
+        if (TryGetValue(role.ToString().ToLower(), out var value))
         {
-            if (value.TryGetValue(botDifficulty.ToString().ToLower(), out BotSettingsComponents botSettingsComponents))
+            if (value.TryGetValue(botDifficulty.ToString().ToLower(), out var botSettingsComponents))
             {
                 return botSettingsComponents;
             }
         }
 
-        FikaPlugin.Instance.FikaLogger.LogError($"Unable to retrieve difficulty settings for: {role}, difficulty: {botDifficulty}");
+        FikaGlobals.LogError($"Unable to retrieve difficulty settings for: {role}, difficulty: {botDifficulty}");
         return null;
     }
 

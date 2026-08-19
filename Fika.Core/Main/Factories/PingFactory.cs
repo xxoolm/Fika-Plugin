@@ -1,4 +1,6 @@
-﻿using Comfort.Common;
+﻿using EFT.CameraControl;
+using System.Collections.Generic;
+using Comfort.Common;
 using EFT;
 using EFT.Communications;
 using EFT.UI;
@@ -6,7 +8,6 @@ using Fika.Core.Bundles;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.UI;
-using System.Collections.Generic;
 using TMPro;
 using UnityEngine.UI;
 using Object = System.Object;
@@ -37,26 +38,26 @@ public static class PingFactory
             Singleton<GUISounds>.Instance.PlayUISound(GetPingSound());
             if (string.IsNullOrEmpty(localeId))
             {
-                NotificationManagerClass.DisplayMessageNotification(string.Format(LocaleUtils.RECEIVE_PING.Localized(), FikaUIGlobals.ColorizeText(FikaUIGlobals.EColor.GREEN, nickname)),
+                NotificationManager.DisplayMessageNotification(string.Format(LocaleUtils.RECEIVE_PING.Localized(), FikaUIGlobals.ColorizeText(FikaUIGlobals.EColor.GREEN, nickname)),
                             ENotificationDurationType.Default, ENotificationIconType.Friend);
             }
             else
             {
                 var localizedName = localeId.Localized();
-                NotificationManagerClass.DisplayMessageNotification(string.Format(LocaleUtils.RECEIVE_PING_OBJECT.Localized(),
+                NotificationManager.DisplayMessageNotification(string.Format(LocaleUtils.RECEIVE_PING_OBJECT.Localized(),
                     [FikaUIGlobals.ColorizeText(FikaUIGlobals.EColor.GREEN, nickname), FikaUIGlobals.ColorizeText(FikaUIGlobals.EColor.BLUE, localizedName)]),
                     ENotificationDurationType.Default, ENotificationIconType.Friend);
             }
         }
         else
         {
-            FikaPlugin.Instance.FikaLogger.LogError($"Received {pingType} from {nickname} but factory failed to handle it");
+            FikaGlobals.LogError($"Received {pingType} from {nickname} but factory failed to handle it");
         }
     }
 
     public static EUISoundType GetPingSound()
     {
-        return FikaPlugin.PingSound.Value switch
+        return FikaPlugin.Instance.Settings.PingSound.Value switch
         {
             FikaPlugin.EPingSound.InsuranceInsured => EUISoundType.InsuranceInsured,
             FikaPlugin.EPingSound.SubQuestComplete => EUISoundType.QuestSubTrackComplete,
@@ -113,20 +114,20 @@ public static class PingFactory
             _canvasRect = GetComponentInChildren<Canvas>().GetComponent<RectTransform>();
             _rangeText = GetComponentInChildren<TextMeshProUGUI>(true);
             _rangeText.color = Color.clear;
-            _displayRange = FikaPlugin.ShowPingRange.Value;
+            _displayRange = FikaPlugin.Instance.Settings.ShowPingRange.Value;
             _rangeText.gameObject.SetActive(_displayRange);
             if (_mainPlayer == null)
             {
                 Destroy(gameObject);
-                FikaPlugin.Instance.FikaLogger.LogError("Ping::Awake: Could not find MainPlayer!");
+                FikaGlobals.LogError("Ping::Awake: Could not find MainPlayer!");
             }
-            Destroy(gameObject, FikaPlugin.PingTime.Value);
+            Destroy(gameObject, FikaPlugin.Instance.Settings.PingTime.Value);
         }
 
         protected void Update()
         {
             if (_mainPlayer.HealthController.IsAlive && _mainPlayer.ProceduralWeaponAnimation.IsAiming
-                && _mainPlayer.ProceduralWeaponAnimation.CurrentScope.IsOptic && !FikaPlugin.ShowPingDuringOptics.Value)
+                && _mainPlayer.ProceduralWeaponAnimation.CurrentScope.IsOptic && !FikaPlugin.Instance.Settings.ShowPingDuringOptics.Value)
             {
                 _image.color = Color.clear;
                 if (_displayRange)
@@ -138,7 +139,7 @@ public static class PingFactory
             }
 
             const float edgePadding = 20f;
-            var cam = CameraClass.Instance.Camera;
+            var cam = CameraManager.Instance.Camera;
             var targetPos = _hitPoint;
 
             // vector from camera to target
@@ -150,7 +151,7 @@ public static class PingFactory
             if (!behindCamera)
             {
                 WorldToScreen.ProjectToCanvas(targetPos, _mainPlayer, _canvasRect, out canvasPos,
-                    FikaPlugin.PingUseOpticZoom.Value, true);
+                    FikaPlugin.Instance.Settings.PingUseOpticZoom.Value, true);
             }
             else
             {
@@ -179,7 +180,7 @@ public static class PingFactory
             // distance-based alpha
             var distanceToCenter = canvasPos.magnitude;
             var alpha = distanceToCenter < 200f
-                ? Mathf.Max(FikaPlugin.PingMinimumOpacity.Value, distanceToCenter / 200f)
+                ? Mathf.Max(FikaPlugin.Instance.Settings.PingMinimumOpacity.Value, distanceToCenter / 200f)
                 : 1f;
 
             _image.color = new Color(_pingColor.r, _pingColor.g, _pingColor.b, alpha);
@@ -198,7 +199,7 @@ public static class PingFactory
 
             if (_displayRange)
             {
-                _rangeText.text = $"[{CameraClass.Instance.Distance(_hitPoint):F1}m]";
+                _rangeText.SetText("[{0:0.0}m]", CameraManager.Instance.Distance(_hitPoint));
             }
         }
 
@@ -208,10 +209,10 @@ public static class PingFactory
             transform.position = point;
             _pingColor = pingColor;
 
-            var distance = Mathf.Clamp(Vector3.Distance(CameraClass.Instance.Camera.transform.position, transform.position) / 100, 0.4f, 0.6f);
-            var pingSize = FikaPlugin.PingSize.Value;
+            var distance = Mathf.Clamp(Vector3.Distance(CameraManager.Instance.Camera.transform.position, transform.position) / 100, 0.4f, 0.6f);
+            var pingSize = FikaPlugin.Instance.Settings.PingSize.Value;
             Vector3 scaledSize = new(pingSize, pingSize, pingSize);
-            if (FikaPlugin.PingScaleWithDistance.Value)
+            if (FikaPlugin.Instance.Settings.PingScaleWithDistance.Value)
             {
                 scaledSize *= distance;
             }

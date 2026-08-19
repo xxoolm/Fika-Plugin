@@ -1,10 +1,10 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
 using EFT;
 
 namespace Fika.Core.Main.ObservedClasses.MovementStates;
 
-public class ObservedSprintState : SprintStateClass
+public class ObservedSprintState : SprintPlayerState
 {
     public ObservedSprintState(MovementContext movementContext) : base(movementContext)
     {
@@ -34,7 +34,7 @@ public class ObservedSprintState : SprintStateClass
         if (MovementContext.IsSprintEnabled)
         {
             MovementContext.MovementDirection = Vector2.Lerp(MovementContext.MovementDirection, Direction, deltaTime * EFTHardSettings.Instance.DIRECTION_LERP_SPEED);
-            MovementContext.SetUpDiscreteDirection(GClass2076.ConvertToMovementDirection(Direction));
+            MovementContext.SetUpDiscreteDirection(MovementDirectionExtension.ConvertToMovementDirection(Direction));
             Direction = Vector2.zero;
             MovementContext.ApplyRotation(Quaternion.AngleAxis(MovementContext.Yaw, Vector3.up));
             UpdateRotationAndPosition(deltaTime);

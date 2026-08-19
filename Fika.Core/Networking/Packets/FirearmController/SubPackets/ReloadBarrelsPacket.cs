@@ -1,8 +1,9 @@
-﻿using EFT.InventoryLogic;
+﻿using EFT;
+using EFT.InventoryLogic;
 using Fika.Core.Main.ObservedClasses.HandsControllers;
 using Fika.Core.Main.Players;
+using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Pooling;
-using System.Collections.Generic;
 
 namespace Fika.Core.Networking.Packets.FirearmController.SubPackets;
 
@@ -13,12 +14,11 @@ public sealed class ReloadBarrelsPacket : IPoolSubPacket
 
     }
 
-    public static ReloadBarrelsPacket FromValue(bool reload, string[] ammoIds, byte[] locationDescription)
+    public static ReloadBarrelsPacket FromValue(string[] ammoIds, ItemAddress placeToPutContainedAmmoMagazine)
     {
-        ReloadBarrelsPacket packet = FirearmSubPacketPoolManager.Instance.GetPacket<ReloadBarrelsPacket>(EFirearmSubPacketType.ReloadBarrels);
-        packet.Reload = reload;
+        var packet = FirearmSubPacketPoolManager.Instance.GetPacket<ReloadBarrelsPacket>(EFirearmSubPacketType.ReloadBarrels);
         packet.AmmoIds = ammoIds;
-        packet.LocationDescription = locationDescription;
+        packet.PlaceToPutContainedAmmoMagazine = placeToPutContainedAmmoMagazine;
         return packet;
     }
 
@@ -28,29 +28,27 @@ public sealed class ReloadBarrelsPacket : IPoolSubPacket
     }
 
     public string[] AmmoIds;
-    public byte[] LocationDescription;
-    public bool Reload;
+    public ItemAddress PlaceToPutContainedAmmoMagazine;
+    public ItemAddressDescriptor Descriptor;
 
     public void Execute(FikaPlayer player)
     {
         if (player.HandsController is ObservedFirearmController controller)
         {
-            List<AmmoItemClass> ammo = controller.FindAmmoByIds(AmmoIds);
-            AmmoPackReloadingClass ammoPack = new(ammo);
+            var ammo = controller.FindAmmoByIds(AmmoIds);
+            AmmoPack ammoPack = new(ammo);
             ItemAddress gridItemAddress = null;
 
-            using GClass1283 eftReader = PacketToEFTReaderAbstractClass.Get(LocationDescription);
-            try
+            if (Descriptor != null)
             {
-                if (LocationDescription.Length > 0)
+                try
                 {
-                    GClass1950 descriptor = eftReader.ReadPolymorph<GClass1950>();
-                    gridItemAddress = player.InventoryController.ToItemAddress(descriptor);
+                    gridItemAddress = player.InventoryController.ToItemAddress(Descriptor);
                 }
-            }
-            catch (GException4 exception2)
-            {
-                FikaPlugin.Instance.FikaLogger.LogError(exception2);
+                catch (HTTPNetworkException exception2)
+                {
+                    FikaGlobals.LogError(exception2);
+                }
             }
 
             if (ammoPack != null)
@@ -60,35 +58,36 @@ public sealed class ReloadBarrelsPacket : IPoolSubPacket
             }
             else
             {
-                FikaPlugin.Instance.FikaLogger.LogError($"ReloadBarrelsPacket: final variables were null! Ammo: {ammoPack}, Address: {gridItemAddress}");
+                FikaGlobals.LogError($"ReloadBarrelsPacket: final variables were null! Ammo: {ammoPack}, Address: {gridItemAddress}");
             }
         }
     }
 
     public void Serialize(NetDataWriter writer)
     {
-        writer.Put(Reload);
-        if (Reload)
+        writer.PutArray(AmmoIds);
+        var exists = PlaceToPutContainedAmmoMagazine != null;
+        writer.Put(exists);
+        if (exists)
         {
-            writer.PutArray(AmmoIds);
-            writer.PutByteArray(LocationDescription);
+            writer.PutPolymorph(PlaceToPutContainedAmmoMagazine.ToDescriptor());
         }
     }
 
     public void Deserialize(NetDataReader reader)
     {
-        Reload = reader.GetBool();
-        if (Reload)
+        AmmoIds = reader.GetStringArray();
+        var exists = reader.GetBool();
+        if (exists)
         {
-            AmmoIds = reader.GetStringArray();
-            LocationDescription = reader.GetByteArray();
+            Descriptor = reader.GetPolymorph<ItemAddressDescriptor>();
         }
     }
 
     public void Dispose()
     {
-        Reload = false;
         AmmoIds = null;
-        LocationDescription = null;
+        PlaceToPutContainedAmmoMagazine = null;
+        Descriptor = null;
     }
 }

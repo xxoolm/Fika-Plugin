@@ -1,26 +1,26 @@
-﻿using Comfort.Common;
+﻿using JsonType;
+using System.Threading;
+using System.Threading.Tasks;
+using Comfort.Common;
 using EFT;
-using EFT.HealthSystem;
-using EFT.InventoryLogic;
 using EFT.Weather;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.ClientClasses;
 
-public class ClientRunddansController : GClass2286
+public class ClientRunddansController : NetworkRunddansController
 {
-    public ClientRunddansController(BackendConfigSettingsClass.GClass1748 settings, LocationSettingsClass.Location location) : base(settings, location)
+    public ClientRunddansController(GlobalConfiguration.RunddansGlobalSettings settings, LocationSettings.Location location) : base(settings, location)
     {
-        HandleWeather(settings.ApplyFrozenEveryMS, CancellationTokenSource_0.Token).HandleExceptions();
+        HandleWeather(settings.ApplyFrozenEveryMS, _cts.Token)
+            .HandleExceptions();
     }
 
     public async Task HandleWeather(int delay, CancellationToken token)
     {
-        GameTimerClass gameTimer = Singleton<AbstractGame>.Instance.GameTimer;
-        for (; ; )
+        var gameTimer = Singleton<AbstractGame>.Instance.GameTimer;
+        while (true)
         {
             try
             {
@@ -31,16 +31,16 @@ public class ClientRunddansController : GClass2286
             {
                 break;
             }
-            if (gameTimer.PastTime.TotalSeconds >= (double)Gclass1748_0.initialFrozenDelaySec)
+            if (gameTimer.PastTime.TotalSeconds >= (double)settings.initialFrozenDelaySec)
             {
-                Player myPlayer = GamePlayerOwner.MyPlayer;
+                var myPlayer = GamePlayerOwner.MyPlayer;
                 if (myPlayer != null && !myPlayer.IsAI
-                    && !myPlayer.AIData.IsInside && !method_0(myPlayer)
+                    && !myPlayer.AIData.IsInside && !CheckBonfires(myPlayer)
                     && !(WeatherController.Instance == null) && WeatherController.Instance.WeatherCurve.Rain
-                    >= Gclass1748_0.rainForFrozen &&
-                    (EFTDateTimeClass.UtcNow - myPlayer.AIData.DrinkTimestamp).TotalSeconds >= (double)Gclass1748_0.drunkImmunitySec)
+                    >= settings.rainForFrozen &&
+                    (DateTimeExtensions.UtcNow - myPlayer.AIData.DrinkTimestamp).TotalSeconds >= (double)settings.drunkImmunitySec)
                 {
-                    ActiveHealthController activeHealthController = myPlayer.ActiveHealthController;
+                    var activeHealthController = myPlayer.ActiveHealthController;
                     if (activeHealthController != null)
                     {
                         activeHealthController.TryDoExternalBuff("Buffs_Frostbite");
@@ -52,15 +52,15 @@ public class ClientRunddansController : GClass2286
 
     public void DestroyItem(FikaPlayer player)
     {
-        if (!method_5(player, out Item item))
+        if (!TryGetConsumableItem(player, out var item))
         {
             FikaGlobals.LogError($"Could not find repair item on {player.Profile.Info.MainProfileNickname}");
             return;
         }
-        if (!method_10(item))
+
+        if (!TryRemoveConsumableItem(item))
         {
             FikaGlobals.LogError($"Remove consumable error on {player.Profile.Info.MainProfileNickname}");
-            return;
         }
     }
 }

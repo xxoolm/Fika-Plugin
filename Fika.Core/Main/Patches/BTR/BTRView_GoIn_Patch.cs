@@ -1,4 +1,8 @@
-﻿using Audio.Vehicles.BTR;
+﻿using EFT.GlobalEvents;
+using System;
+using System.Reflection;
+using System.Threading.Tasks;
+using Audio.Vehicles.BTR;
 using Comfort.Common;
 using EFT;
 using EFT.Vehicle;
@@ -8,10 +12,6 @@ using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.World;
 using HarmonyLib;
 using SPT.Reflection.Patching;
-using System;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.Patches.BTR;
 
@@ -19,13 +19,14 @@ public class BTRView_GoIn_Patch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(BTRView).GetMethod(nameof(BTRView.GoIn));
+        return typeof(BTRView).GetMethod(nameof(BTRView.GoIn),
+            [typeof(Player), typeof(BTRSide), typeof(byte), typeof(bool)]);
     }
 
     [PatchPrefix]
     public static bool Prefix(BTRView __instance, Player player, BTRSide side, byte placeId, bool fast, ref Task __result)
     {
-        bool isServer = FikaBackendUtils.IsServer;
+        var isServer = FikaBackendUtils.IsServer;
         if (player is ObservedPlayer observedPlayer)
         {
             __result = ObservedGoIn(__instance, observedPlayer, side, placeId, fast);
@@ -35,7 +36,7 @@ public class BTRView_GoIn_Patch : ModulePatch
 
         if (player.IsYourPlayer)
         {
-            FikaPlayer myPlayer = (FikaPlayer)player;
+            var myPlayer = (FikaPlayer)player;
             myPlayer.PacketSender.SendState = false;
             player.InputDirection = new(0, 0);
             if (isServer)
@@ -63,7 +64,7 @@ public class BTRView_GoIn_Patch : ModulePatch
     {
         try
         {
-            CancellationToken cancellationToken = view.method_12(observedPlayer);
+            var cancellationToken = view.PlayerToken(observedPlayer);
             observedPlayer.MovementContext.IsAxesIgnored = true;
             observedPlayer.BtrState = EPlayerBtrState.Approach;
             if (!fast)
@@ -79,24 +80,24 @@ public class BTRView_GoIn_Patch : ModulePatch
             observedPlayer.CharacterController.isEnabled = false;
             observedPlayer.BtrState = EPlayerBtrState.GoIn;
             side.AddPassenger(observedPlayer, placeId);
-            BtrSoundController soundController = Traverse.Create(view).Field<BtrSoundController>("_soundController").Value;
+            var soundController = Traverse.Create(view).Field<BtrSoundController>("_soundController").Value;
             if (soundController != null)
             {
                 soundController.UpdateBtrAudioRoom(EnvironmentType.Indoor, observedPlayer);
             }
-            await view.method_15(observedPlayer.MovementContext.PlayerAnimator, fast, true, cancellationToken);
+            await view.GoInAnimation(observedPlayer.MovementContext.PlayerAnimator, fast, true, cancellationToken);
             if (!cancellationToken.IsCancellationRequested)
             {
-                if (view.method_18() == 1)
+                if (view.GetBusyPlacesCount() == 1)
                 {
-                    GlobalEventHandlerClass.CreateEvent<GClass3544>().Invoke(observedPlayer.Side);
+                    GlobalEventsController.CreateEvent<BtrFirstPassengerGoInEvent>().Invoke(observedPlayer.Side);
                 }
                 observedPlayer.BtrState = EPlayerBtrState.Inside;
             }
         }
         catch (Exception ex)
         {
-            FikaPlugin.Instance.FikaLogger.LogError("BTRView_GoIn_Patch: " + ex.Message);
+            FikaGlobals.LogError("BTRView_GoIn_Patch: " + ex.Message);
         }
     }
 }

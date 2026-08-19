@@ -1,8 +1,9 @@
-﻿using HarmonyLib;
-using SPT.Reflection.Patching;
+﻿using EFT;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using HarmonyLib;
+using SPT.Reflection.Patching;
 
 namespace Fika.Core.Main.Patches.DebugPatches;
 
@@ -14,8 +15,8 @@ internal class LabsKeycardDebugPatch : ModulePatch
 {
     protected override MethodBase GetTargetMethod()
     {
-        return typeof(MainMenuControllerClass)
-            .GetMethod(nameof(MainMenuControllerClass.method_53));
+        return typeof(MainMenuShowOperation)
+            .GetMethod(nameof(MainMenuShowOperation.method_53));
     }
 
     [PatchTranspiler]

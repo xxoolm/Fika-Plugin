@@ -1,6 +1,7 @@
 ﻿using EFT.UI;
 using Fika.Core.Main.Utils;
 using TMPro;
+using EFT;
 using UnityEngine.UI;
 
 public class SendItemUI : MonoBehaviour
@@ -8,6 +9,7 @@ public class SendItemUI : MonoBehaviour
     public Button CloseButton;
     public Button SendButton;
     public TMP_Dropdown PlayersDropdown;
+    public TMP_InputField PlayersFilter;
     [SerializeField]
 #pragma warning disable CS0649
     TextMeshProUGUI _headerText;
@@ -17,10 +19,10 @@ public class SendItemUI : MonoBehaviour
 
     protected void Awake()
     {
-        _headerText.text = LocaleUtils.UI_SENDITEM_HEADER.Localized();
-        _sendText.text = LocaleUtils.UI_SENDITEM_BUTTON.Localized();
-        GameObject gameObjectToAdd = gameObject.transform.GetChild(0).GetChild(0).gameObject;
-        RectTransform rectTransform = gameObjectToAdd.RectTransform();
+        _headerText.SetText(LocaleUtils.UI_SENDITEM_HEADER.Localized());
+        _sendText.SetText(LocaleUtils.UI_SENDITEM_BUTTON.Localized());
+        var gameObjectToAdd = gameObject.transform.GetChild(0).GetChild(0).gameObject;
+        var rectTransform = gameObjectToAdd.RectTransform();
         gameObjectToAdd.AddComponent<UIDragComponent>().Init(rectTransform, true);
     }
 }

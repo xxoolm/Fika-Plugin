@@ -1,6 +1,7 @@
 ﻿using BepInEx.Logging;
 using Comfort.Common;
 using Diz.Utils;
+using EFT.Communications;
 using EFT.UI;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Websocket.Notifications;
@@ -17,7 +18,7 @@ namespace Fika.Core.Networking.Websocket;
 
 internal class FikaNotificationManager
 {
-    private static readonly ManualLogSource _logger = BepInEx.Logging.Logger.CreateLogSource("FikaNotificationManager");
+    private static readonly ManualLogSource _logger = Logger.CreateLogSource("FikaNotificationManager");
     public static FikaNotificationManager Instance;
     public static bool Exists
     {
@@ -88,7 +89,7 @@ internal class FikaNotificationManager
 
     private void WebSocket_OnMessage(object sender, MessageEventArgs e)
     {
-        if (e == null)
+        if (e == null || e.IsPing)
         {
             return;
         }
@@ -98,19 +99,19 @@ internal class FikaNotificationManager
             return;
         }
 
-        JObject jsonObject = JObject.Parse(e.Data);
+        var jsonObject = JObject.Parse(e.Data);
 
         if (!jsonObject.ContainsKey("type"))
         {
             return;
         }
 
-        EFikaNotification type = (EFikaNotification)Enum.Parse(typeof(EFikaNotification), jsonObject.Value<string>("type"));
+        var type = (EFikaNotification)Enum.Parse(typeof(EFikaNotification), jsonObject.Value<string>("type"));
 
 #if DEBUG
         _logger.LogDebug($"Received type: {type}");
 #endif
-        NotificationAbstractClass notification = null;
+        Notification notification = null;
         switch (type)
         {
             case EFikaNotification.StartedRaid:
@@ -140,10 +141,14 @@ internal class FikaNotificationManager
                 notification = e.Data.ParseJsonTo<ShutdownClientNotification>([]);
                 HandleShutdown(notification);
                 break;
+            case EFikaNotification.HeadlessConnected:
+                notification = e.Data.ParseJsonTo<HeadlessConnectedNotification>([]);
+                HandleNotification(notification);
+                break;
         }
     }
 
-    private void HandleShutdown(NotificationAbstractClass notification)
+    private void HandleShutdown(Notification notification)
     {
         if (FikaBackendUtils.IsHeadless)
         {
@@ -151,7 +156,7 @@ internal class FikaNotificationManager
         }
     }
 
-    private void HandleAdminMenu(NotificationAbstractClass notification)
+    private void HandleAdminMenu(Notification notification)
     {
         if (notification is OpenAdminMenuNotification openAdminNotif && openAdminNotif.Success)
         {
@@ -159,12 +164,9 @@ internal class FikaNotificationManager
         }
     }
 
-    private void HandleNotification(NotificationAbstractClass notification)
+    private void HandleNotification(Notification notification)
     {
-        AsyncWorker.RunInMainTread(() =>
-        {
-            Singleton<PreloaderUI>.Instance.NotifierView.method_5(notification);
-        });
+        AsyncWorker.RunInMainTread(() => Singleton<PreloaderUI>.Instance.NotifierView.NotificationReceivedHandler(notification));
     }
 
     private async Task ReconnectWebSocket()
@@ -199,7 +201,7 @@ internal class FikaNotificationManager
     public static void TestNotification(EFikaNotification type)
     {
         // Ugly ass one-liner, who cares. It's for debug purposes
-        string Username = FikaPlugin.DevelopersList.ToList()[new System.Random().Next(FikaPlugin.DevelopersList.Count)].Key;
+        var Username = FikaPlugin.DevelopersList.ToList()[new System.Random().Next(FikaPlugin.DevelopersList.Count)].Key;
 
         switch (type)
         {
@@ -210,7 +212,7 @@ internal class FikaNotificationManager
                     Location = "Factory"
                 };
 
-                Singleton<PreloaderUI>.Instance.NotifierView.method_5(startRaidNotification);
+                Singleton<PreloaderUI>.Instance.NotifierView.NotificationReceivedHandler(startRaidNotification);
                 break;
             case EFikaNotification.SentItem:
                 ReceivedSentItemNotification SentItemNotification = new()
@@ -219,16 +221,16 @@ internal class FikaNotificationManager
                     ItemName = "LEDX Skin Transilluminator"
                 };
 
-                Singleton<PreloaderUI>.Instance.NotifierView.method_5(SentItemNotification);
+                Singleton<PreloaderUI>.Instance.NotifierView.NotificationReceivedHandler(SentItemNotification);
                 break;
             case EFikaNotification.PushNotification:
                 PushNotification PushNotification = new()
                 {
                     Notification = "Test notification",
-                    NotificationIcon = EFT.Communications.ENotificationIconType.Note
+                    NotificationIcon = ENotificationIconType.Note
                 };
 
-                Singleton<PreloaderUI>.Instance.NotifierView.method_5(PushNotification);
+                Singleton<PreloaderUI>.Instance.NotifierView.NotificationReceivedHandler(PushNotification);
                 break;
         }
     }

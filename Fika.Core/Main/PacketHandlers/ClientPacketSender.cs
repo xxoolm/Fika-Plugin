@@ -1,5 +1,7 @@
-﻿// © 2025 Lacyway All Rights Reserved
+﻿// © 2026 Lacyway All Rights Reserved
 
+using System;
+using System.Threading.Tasks;
 using Comfort.Common;
 using EFT;
 using EFT.Interactive;
@@ -16,9 +18,6 @@ using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
 using Fika.Core.Networking.Packets.Player;
 using Fika.Core.UI.Custom;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace Fika.Core.Main.PacketHandlers;
 
@@ -28,7 +27,6 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
     public IFikaNetworkManager NetworkManager { get; set; }
 
     private FikaPlayer _player;
-    private PlayerStatePacket _state;
     private int _animHash;
     private bool IsMoving
     {
@@ -43,8 +41,8 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
     {
         get
         {
-            return FikaPlugin.UsePingSystem.Value && _player.IsYourPlayer && Input.GetKey(FikaPlugin.PingButton.Value.MainKey)
-                && FikaPlugin.PingButton.Value.Modifiers.All(Input.GetKey) && !MonoBehaviourSingleton<PreloaderUI>.Instance.Console.IsConsoleVisible
+            return FikaPlugin.Instance.Settings.UsePingSystem.Value && _player.IsYourPlayer && Input.GetKey(FikaPlugin.Instance.Settings.PingButton.Value.MainKey)
+                && FikaGlobals.AreModifiersPressed(FikaPlugin.Instance.Settings.PingButton.Value) && !MonoBehaviourSingleton<PreloaderUI>.Instance.Console.IsConsoleVisible
                 && _lastPingTime < DateTime.Now.AddSeconds(-3) && !FikaChatUIScript.IsActive && Singleton<IFikaGame>.Instance is CoopGame coopGame && coopGame.Status is GameStatus.Started
                 && !_player.IsInventoryOpened;
         }
@@ -65,10 +63,6 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
         sender._updateRate = sender.NetworkManager.SendRate;
         sender._updateCount = 0;
         sender._updatesPerTick = 1f / sender._updateRate;
-        sender._state = new()
-        {
-            NetId = (byte)player.NetId
-        };
         sender._animHash = PlayerAnimator.INERT_PARAM_HASH;
         return Task.FromResult(sender);
     }
@@ -77,9 +71,9 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
     {
         enabled = true;
         SendState = true;
-        if (_player.AbstractQuestControllerClass is ClientSharedQuestController sharedQuestController)
+        if (_player.QuestController is ClientQuestController clientQuestController)
         {
-            sharedQuestController.LateInit();
+            clientQuestController.LateInit();
         }
     }
 
@@ -100,8 +94,8 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
 
     private void SendPlayerState()
     {
-        _state.UpdateFromPlayer(_player, IsMoving);
-        NetworkManager.SendPlayerState(ref _state);
+        var state = new PlayerStateData(_player, IsMoving);
+        NetworkManager.SendPlayerState(ref state);
     }
 
     protected void LateUpdate()
@@ -116,7 +110,7 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
     {
         Transform originTransform;
         Ray sourceRaycast;
-        FreeCameraController freeCamController = Singleton<FreeCameraController>.Instance;
+        var freeCamController = Singleton<FreeCameraController>.Instance;
         if (freeCamController != null && freeCamController.IsScriptActive)
         {
             originTransform = freeCamController.CameraMain.gameObject.transform;
@@ -138,17 +132,17 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
         {
             return;
         }
-        
-        if (Physics.Raycast(sourceRaycast, out RaycastHit hit, FikaGlobals.PingRange, FikaGlobals.PingMask))
+
+        if (Physics.Raycast(sourceRaycast, out var hit, FikaGlobals.PingRange, FikaGlobals.PingMask))
         {
             _lastPingTime = DateTime.Now;
             //GameObject gameObject = new("Ping", typeof(FikaPing));
             //gameObject.transform.localPosition = hit.point;
             Singleton<GUISounds>.Instance.PlayUISound(PingFactory.GetPingSound());
-            GameObject hitGameObject = hit.collider.gameObject;
-            int hitLayer = hitGameObject.layer;
+            var hitGameObject = hit.collider.gameObject;
+            var hitLayer = hitGameObject.layer;
 
-            PingFactory.EPingType pingType = PingFactory.EPingType.Point;
+            var pingType = PingFactory.EPingType.Point;
             object userData = null;
             string localeId = null;
 
@@ -192,11 +186,11 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
                 userData = interactable;
             }
 
-            GameObject basePingPrefab = InternalBundleLoader.Instance.GetFikaAsset(InternalBundleLoader.EFikaAsset.Ping);
-            GameObject basePing = GameObject.Instantiate(basePingPrefab);
-            Vector3 hitPoint = hit.point;
-            PingFactory.AbstractPing abstractPing = PingFactory.FromPingType(pingType, basePing);
-            Color pingColor = FikaPlugin.PingColor.Value;
+            var basePingPrefab = InternalBundleLoader.Instance.GetFikaAsset(InternalBundleLoader.EFikaAsset.Ping);
+            var basePing = GameObject.Instantiate(basePingPrefab);
+            var hitPoint = hit.point;
+            var abstractPing = PingFactory.FromPingType(pingType, basePing);
+            var pingColor = FikaPlugin.Instance.Settings.PingColor.Value;
             pingColor = new(pingColor.r, pingColor.g, pingColor.b, 1);
             // ref so that we can mutate it if we want to, ex: if I ping a switch I want it at the switch.gameObject.position + Vector3.up
             abstractPing.Initialize(ref hitPoint, userData, pingColor);
@@ -204,9 +198,9 @@ public class ClientPacketSender : MonoBehaviour, IPacketSender
             NetworkManager.SendGenericPacket(Networking.Packets.Generic.EGenericSubPacketType.Ping,
                 PingPacket.FromValue(hitPoint, pingType, pingColor, _player.Profile.Info.MainProfileNickname, localeId), true);
 
-            if (FikaPlugin.PlayPingAnimation.Value && _player.HealthController.IsAlive)
+            if (FikaPlugin.Instance.Settings.PlayPingAnimation.Value && _player.HealthController.IsAlive)
             {
-                _player.vmethod_7(EInteraction.ThereGesture);
+                _player.ShowGesture(EInteraction.ThereGesture);
             }
         }
     }

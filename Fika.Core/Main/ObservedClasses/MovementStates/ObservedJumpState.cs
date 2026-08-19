@@ -2,11 +2,11 @@
 
 namespace Fika.Core.Main.ObservedClasses.MovementStates;
 
-public class ObservedJumpState(MovementContext movementContext) : JumpStateClass(movementContext)
+public class ObservedJumpState(MovementContext movementContext) : JumpPlayerState(movementContext)
 {
     public override void ApplyMovementAndRotation(float deltaTime)
     {
-        Quaternion quaternion = Quaternion.Lerp(MovementContext.TransformRotation,
+        var quaternion = Quaternion.Lerp(MovementContext.TransformRotation,
             Quaternion.AngleAxis(MovementContext.Yaw, Vector3.up),
             EFTHardSettings.Instance.TRANSFORM_ROTATION_LERP_SPEED * deltaTime);
         MovementContext.ApplyRotation(quaternion);
@@ -21,24 +21,24 @@ public class ObservedJumpState(MovementContext movementContext) : JumpStateClass
 
     public override void ManualAnimatorMoveUpdate(float deltaTime)
     {
-        if (EjumpState_0 == EJumpState.PushingFromTheGround)
+        if (_jumpState == EJumpState.PushingFromTheGround)
         {
-            if (!MovementContext.IsGrounded && Float_2 > Float_3)
+            if (!MovementContext.IsGrounded && _stateTime > _liftDelay)
             {
-                EjumpState_0 = EJumpState.Jump;
+                _jumpState = EJumpState.Jump;
             }
         }
-        else if (EjumpState_0 == EJumpState.Jump)
+        else if (_jumpState == EJumpState.Jump)
         {
-            if (Float_10 > EFTHardSettings.Instance.JumpTimeDescendingForStateExit && MovementContext.IsGrounded)
+            if (_timeDescending > EFTHardSettings.Instance.JumpTimeDescendingForStateExit && MovementContext.IsGrounded)
             {
-                if (Vector2_0.sqrMagnitude > 0.1f && MovementContext.CanWalk)
+                if (_moveDirection.sqrMagnitude > 0.1f && MovementContext.CanWalk)
                 {
-                    MovementContext.MovementDirection = Vector2_0;
+                    MovementContext.MovementDirection = _moveDirection;
                 }
             }
         }
-        Float_2 += deltaTime;
+        _stateTime += deltaTime;
         ApplyMovementAndRotation(deltaTime);
     }
 }

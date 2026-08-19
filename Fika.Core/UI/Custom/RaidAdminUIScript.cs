@@ -1,10 +1,10 @@
-﻿using EFT.InputSystem;
+﻿using System.Collections;
+using System.Collections.Generic;
+using EFT.InputSystem;
 using EFT.UI;
 using Fika.Core.Bundles;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
-using System.Collections;
-using System.Collections.Generic;
 using TMPro;
 
 namespace Fika.Core.UI.Custom;
@@ -14,9 +14,10 @@ public class RaidAdminUIScript : InputNode
     private RaidAdminUI _raidAdminUI;
     private FikaServer _server;
     private NetManager _netManager;
-    private NetPeer _currentPeer;
+    private LiteNetPeer _currentPeer;
     private float _counter;
     private float _counterThreshold;
+    private List<LiteNetPeer> _peers;
 
     private void Awake()
     {
@@ -24,6 +25,7 @@ public class RaidAdminUIScript : InputNode
 
         _counter = 0f;
         _counterThreshold = 1f;
+        _peers = [];
 
         _raidAdminUI.ClientSelection.onValueChanged.AddListener(OnClientSelection);
         _raidAdminUI.KickButton.onClick.AddListener(OnKickButton);
@@ -54,14 +56,14 @@ public class RaidAdminUIScript : InputNode
 
     private void UpdatePeerData()
     {
-        NetStatistics statistics = _currentPeer.Statistics;
+        var statistics = _currentPeer.Statistics;
 
-        _raidAdminUI.SentDataText.text = $"Sent Data: {FormatBytes(statistics.BytesSent)}";
-        _raidAdminUI.ReceivedDataText.text = $"Received Data: {FormatBytes(statistics.BytesReceived)}";
-        _raidAdminUI.SentPacketsText.text = $"Sent Packets: {statistics.PacketsSent}";
-        _raidAdminUI.ReceivedPacketsText.text = $"Received Packets: {statistics.PacketsReceived}";
-        _raidAdminUI.PacketLossText.text = $"Packet Loss: {statistics.PacketLoss}";
-        _raidAdminUI.PacketLossPercentText.text = $"Packet Loss %: {statistics.PacketLossPercent}%";
+        _raidAdminUI.SentDataText.SetText($"Sent Data: {FormatBytes(statistics.BytesSent)}");
+        _raidAdminUI.ReceivedDataText.SetText($"Received Data: {FormatBytes(statistics.BytesReceived)}");
+        _raidAdminUI.SentPacketsText.SetText("Sent Packets: {0}", statistics.PacketsSent);
+        _raidAdminUI.ReceivedPacketsText.SetText("Received Packets: {0}", statistics.PacketsReceived);
+        _raidAdminUI.PacketLossText.SetText("Packet Loss: {0}", statistics.PacketLoss);
+        _raidAdminUI.PacketLossPercentText.SetText("Packet Loss %: {0}%", statistics.PacketLossPercent);
     }
 
     private string FormatBytes(long bytes)
@@ -72,15 +74,15 @@ public class RaidAdminUIScript : InputNode
         }
         else if (bytes < 1024 * 1024)
         {
-            return $"{(bytes / 1024f):F2} KB";
+            return $"{bytes / 1024f:F2} KB";
         }
         else if (bytes < 1024 * 1024 * 1024)
         {
-            return $"{(bytes / 1024f / 1024f):F2} MB";
+            return $"{bytes / 1024f / 1024f:F2} MB";
         }
         else
         {
-            return $"{(bytes / 1024f / 1024f / 1024f):F2} GB";
+            return $"{bytes / 1024f / 1024f / 1024f:F2} GB";
         }
     }
 
@@ -101,11 +103,12 @@ public class RaidAdminUIScript : InputNode
             return;
         }
 
-        if (_netManager.ConnectedPeerList[index] != null)
+        _netManager.GetConnectedPeers(_peers);
+        if (_peers[index] != null)
         {
-            _currentPeer = _netManager.ConnectedPeerList[index];
+            _currentPeer = _peers[index];
             _raidAdminUI.InfoPane.SetActive(true);
-            _raidAdminUI.HeaderText.text = $"Client {index}";
+            _raidAdminUI.HeaderText.SetText("Client {0}", index);
         }
         else
         {
@@ -115,13 +118,13 @@ public class RaidAdminUIScript : InputNode
 
     private void ResetInfoPane()
     {
-        _raidAdminUI.HeaderText.text = string.Empty;
-        _raidAdminUI.SentDataText.text = string.Empty;
-        _raidAdminUI.ReceivedDataText.text = string.Empty;
-        _raidAdminUI.SentPacketsText.text = string.Empty;
-        _raidAdminUI.ReceivedPacketsText.text = string.Empty;
-        _raidAdminUI.PacketLossText.text = string.Empty;
-        _raidAdminUI.PacketLossPercentText.text = string.Empty;
+        _raidAdminUI.HeaderText.SetText(string.Empty);
+        _raidAdminUI.SentDataText.SetText(string.Empty);
+        _raidAdminUI.ReceivedDataText.SetText(string.Empty);
+        _raidAdminUI.SentPacketsText.SetText(string.Empty);
+        _raidAdminUI.ReceivedPacketsText.SetText(string.Empty);
+        _raidAdminUI.PacketLossText.SetText(string.Empty);
+        _raidAdminUI.PacketLossPercentText.SetText(string.Empty);
     }
 
     public void Show()
@@ -147,11 +150,12 @@ public class RaidAdminUIScript : InputNode
     {
         ResetInfoPane();
         _raidAdminUI.InfoPane.SetActive(false);
-        TMP_Dropdown clientSelection = _raidAdminUI.ClientSelection;
+        var clientSelection = _raidAdminUI.ClientSelection;
         clientSelection.ClearOptions();
         List<TMP_Dropdown.OptionData> options = [];
 
-        for (int i = 0; i < _netManager.ConnectedPeerList.Count; i++)
+        _netManager.GetConnectedPeers(_peers);
+        for (var i = 0; i < _peers.Count; i++)
         {
             options.Add(new($"Client {i}"));
         }
@@ -179,11 +183,11 @@ public class RaidAdminUIScript : InputNode
 
     public static RaidAdminUIScript Create(FikaServer server, NetManager manager)
     {
-        GameObject gameObject = InternalBundleLoader.Instance.GetFikaAsset(InternalBundleLoader.EFikaAsset.RaidAdminUI);
-        GameObject obj = Instantiate(gameObject);
-        RaidAdminUIScript uiScript = obj.AddComponent<RaidAdminUIScript>();
+        var gameObject = InternalBundleLoader.Instance.GetFikaAsset(InternalBundleLoader.EFikaAsset.RaidAdminUI);
+        var obj = Instantiate(gameObject);
+        var uiScript = obj.AddComponent<RaidAdminUIScript>();
 
-        RectTransform rectTransform = obj.transform.GetChild(0).GetChild(0).RectTransform();
+        var rectTransform = obj.transform.GetChild(0).GetChild(0).RectTransform();
         if (rectTransform == null)
         {
             FikaGlobals.LogError("Could not get the RectTransform!");

@@ -1,16 +1,19 @@
-﻿using Comfort.Common;
+﻿using CommonAssets.Scripts.Game;
+using EFT;
+using EFT.Weather;
+using System.Collections.Generic;
+using System.Linq;
+using Comfort.Common;
 using EFT.Interactive;
 using Fika.Core.Main.GameMode;
 using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking.Packets.Generic;
 using Fika.Core.Networking.Packets.Generic.SubPackets;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Fika.Core.Networking.Packets.World;
 
-public class RequestSubPackets
+public static class RequestSubPackets
 {
     public class SpawnPointRequest : IRequestPacket
     {
@@ -39,7 +42,7 @@ public class RequestSubPackets
 
         public void HandleRequest(NetPeer peer, FikaServer server)
         {
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame != null)
             {
                 if (FikaBackendUtils.IsServer && !string.IsNullOrEmpty(fikaGame.GameController.InfiltrationPoint) && fikaGame.GameController.SpawnPoint != null)
@@ -61,7 +64,7 @@ public class RequestSubPackets
 
         public void HandleResponse()
         {
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame != null)
             {
                 if (!string.IsNullOrEmpty(Infiltration))
@@ -91,7 +94,7 @@ public class RequestSubPackets
     {
         public ESeason Season;
         public Vector3 SpringSnowFactor;
-        public WeatherClass[] WeatherClasses;
+        public WeatherNode[] WeatherClasses;
 
         public WeatherRequest()
         {
@@ -102,9 +105,9 @@ public class RequestSubPackets
         {
             Season = reader.GetEnum<ESeason>();
             SpringSnowFactor = reader.GetUnmanaged<Vector3>();
-            int amount = reader.GetInt();
-            WeatherClasses = new WeatherClass[amount];
-            for (int i = 0; i < amount; i++)
+            var amount = reader.GetInt();
+            WeatherClasses = new WeatherNode[amount];
+            for (var i = 0; i < amount; i++)
             {
                 WeatherClasses[i] = reader.GetWeatherClass();
             }
@@ -112,7 +115,7 @@ public class RequestSubPackets
 
         public void HandleRequest(NetPeer peer, FikaServer server)
         {
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame != null && fikaGame.GameController.WeatherClasses != null && fikaGame.GameController.WeatherClasses.Length > 0)
             {
                 RequestPacket response = new()
@@ -132,7 +135,7 @@ public class RequestSubPackets
 
         public void HandleResponse()
         {
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame != null)
             {
                 fikaGame.Season = Season;
@@ -154,9 +157,9 @@ public class RequestSubPackets
         {
             writer.PutEnum(Season);
             writer.PutUnmanaged(SpringSnowFactor);
-            int amount = WeatherClasses.Length;
+            var amount = WeatherClasses.Length;
             writer.Put(amount);
-            for (int i = 0; i < amount; i++)
+            for (var i = 0; i < amount; i++)
             {
                 writer.PutWeatherClass(WeatherClasses[i]);
             }
@@ -179,18 +182,18 @@ public class RequestSubPackets
 
         public void HandleRequest(NetPeer peer, FikaServer server)
         {
-            if (ExfiltrationControllerClass.Instance == null)
+            if (ExfiltrationController.Instance == null)
             {
-                FikaGlobals.LogError("ExfiltrationRequest::HandleRequest: ExfiltrationControllerClass was null!");
+                FikaGlobals.LogError("ExfiltrationRequest::HandleRequest: ExfiltrationController was null!");
                 return;
             }
 
-            ExfiltrationControllerClass exfilController = ExfiltrationControllerClass.Instance;
-            ExfiltrationPoint[] allExfils = exfilController.ExfiltrationPoints;
+            var exfilController = ExfiltrationController.Instance;
+            var allExfils = exfilController.ExfiltrationPoints;
 
             NetDataWriter writer = new();
             writer.Put(allExfils.Length);
-            foreach (ExfiltrationPoint exfilPoint in allExfils)
+            foreach (var exfilPoint in allExfils)
             {
                 writer.Put(exfilPoint.Settings.Name);
                 writer.PutEnum(exfilPoint.Status);
@@ -220,29 +223,30 @@ public class RequestSubPackets
                 return;
             }
 
-            if (ExfiltrationControllerClass.Instance == null)
+            if (ExfiltrationController.Instance == null)
             {
-                FikaGlobals.LogError("ExfiltrationRequest::HandleRequest: ExfiltrationControllerClass was null!");
+                FikaGlobals.LogError("ExfiltrationRequest::HandleRequest: ExfiltrationController was null!");
                 return;
             }
 
-            ExfiltrationControllerClass exfilController = ExfiltrationControllerClass.Instance;
-            ExfiltrationPoint[] allExfils = exfilController.ExfiltrationPoints;
+            var exfilController = ExfiltrationController.Instance;
+            var allExfils = exfilController.ExfiltrationPoints;
 
             NetDataReader reader = new(Data);
-            int amount = reader.GetInt();
-            for (int i = 0; i < amount; i++)
+            var amount = reader.GetInt();
+            FikaGlobals.LogInfo($"Received {amount} exfils from the server");
+            for (var i = 0; i < amount; i++)
             {
-                string name = reader.GetString();
-                EExfiltrationStatus status = reader.GetEnum<EExfiltrationStatus>();
-                int startTime = reader.GetInt();
-                int exfilStartTime = -1;
+                var name = reader.GetString();
+                var status = reader.GetEnum<EExfiltrationStatus>();
+                var startTime = reader.GetInt();
+                var exfilStartTime = -1;
                 if (status == EExfiltrationStatus.Countdown)
                 {
                     exfilStartTime = reader.GetInt();
                 }
 
-                ExfiltrationPoint exfilPoint = allExfils.FirstOrDefault(x => x.Settings.Name == name);
+                var exfilPoint = allExfils.FirstOrDefault(x => x.Settings.Name == name);
                 if (exfilPoint != null)
                 {
                     exfilPoint.Status = status;
@@ -254,7 +258,7 @@ public class RequestSubPackets
                 }
             }
 
-            IFikaGame fikaGame = Singleton<IFikaGame>.Instance;
+            var fikaGame = Singleton<IFikaGame>.Instance;
             if (fikaGame != null)
             {
                 (fikaGame.GameController as ClientGameController).ExfiltrationReceived = true;
@@ -271,7 +275,7 @@ public class RequestSubPackets
     {
         public int NetId;
         public string TraderId;
-        public List<TraderServicesClass> Services;
+        public List<TraderServiceAvailabilityData> Services;
 
         public TraderServicesRequest()
         {
@@ -281,7 +285,7 @@ public class RequestSubPackets
         public TraderServicesRequest(NetDataReader reader)
         {
             NetId = reader.GetInt();
-            bool isRequest = reader.GetBool();
+            var isRequest = reader.GetBool();
             if (isRequest)
             {
                 TraderId = reader.GetString();
@@ -289,10 +293,10 @@ public class RequestSubPackets
             }
 
             Services = [];
-            int amount = reader.GetInt();
+            var amount = reader.GetInt();
             if (amount > 0)
             {
-                for (int i = 0; i < amount; i++)
+                for (var i = 0; i < amount; i++)
                 {
                     Services.Add(reader.GetTraderService());
                 }
@@ -301,9 +305,9 @@ public class RequestSubPackets
 
         public void HandleRequest(NetPeer peer, FikaServer server)
         {
-            if (Singleton<IFikaNetworkManager>.Instance.CoopHandler.Players.TryGetValue(NetId, out FikaPlayer playerToApply))
+            if (Singleton<IFikaNetworkManager>.Instance.CoopHandler.Players.TryGetValue(NetId, out var playerToApply))
             {
-                List<TraderServicesClass> services = playerToApply.GetAvailableTraderServices(TraderId).ToList();
+                var services = playerToApply.GetAvailableTraderServices(TraderId).ToList();
                 RequestPacket response = new()
                 {
                     Type = ERequestSubPacketType.TraderServices,
@@ -326,16 +330,16 @@ public class RequestSubPackets
                 return;
             }
 
-            if (Singleton<IFikaNetworkManager>.Instance.CoopHandler.Players.TryGetValue(NetId, out FikaPlayer playerToApply))
+            if (Singleton<IFikaNetworkManager>.Instance.CoopHandler.Players.TryGetValue(NetId, out var playerToApply))
             {
-                playerToApply.method_166(Services);
+                playerToApply.UpdateTraderServiceData(Services);
             }
         }
 
         public void Serialize(NetDataWriter writer)
         {
             writer.Put(NetId);
-            bool isRequest = !string.IsNullOrEmpty(TraderId);
+            var isRequest = !string.IsNullOrEmpty(TraderId);
             writer.Put(isRequest);
             if (isRequest)
             {
@@ -343,11 +347,11 @@ public class RequestSubPackets
                 return;
             }
 
-            int amount = Services.Count;
+            var amount = Services.Count;
             writer.Put(amount);
             if (amount > 0)
             {
-                for (int i = 0; i < Services.Count; i++)
+                for (var i = 0; i < Services.Count; i++)
                 {
                     writer.PutTraderService(Services[i]);
                 }
@@ -376,7 +380,7 @@ public class RequestSubPackets
             if (amount > 0)
             {
                 MissingIds = new(amount);
-                for (int i = 0; i < amount; i++)
+                for (var i = 0; i < amount; i++)
                 {
                     MissingIds.Add(reader.GetInt());
                 }
@@ -387,17 +391,17 @@ public class RequestSubPackets
         {
             if (MissingIds != null && server.CoopHandler != null)
             {
-                foreach (int netId in MissingIds)
+                foreach (var netId in MissingIds)
                 {
 #if DEBUG
                     FikaGlobals.LogWarning($"Looking for missing netId {netId}");
 #endif
-                    if (server.CoopHandler.Players.TryGetValue(netId, out FikaPlayer fikaPlayer))
+                    if (server.CoopHandler.Players.TryGetValue(netId, out var fikaPlayer))
                     {
 #if DEBUG
                         FikaGlobals.LogWarning($"Found {fikaPlayer.Profile.Nickname} that was missing from client, sending...");
 #endif
-                        SendCharacterPacket packet = SendCharacterPacket.FromValue(new()
+                        var packet = SendCharacterPacket.FromValue(new()
                         {
                             Profile = fikaPlayer.Profile,
                             ControllerId = fikaPlayer.InventoryController.CurrentId,
@@ -415,7 +419,7 @@ public class RequestSubPackets
 
                         if (fikaPlayer.HandsController != null)
                         {
-                            packet.PlayerInfoPacket.ControllerType = HandsControllerToEnumClass.FromController(fikaPlayer.HandsController);
+                            packet.PlayerInfoPacket.ControllerType = HandsControllerTypeConvert.FromController(fikaPlayer.HandsController);
                             packet.PlayerInfoPacket.ItemId = fikaPlayer.HandsController.Item.Id;
                             packet.PlayerInfoPacket.IsStationary = fikaPlayer.MovementContext.IsStationaryWeaponInHands;
                         }
@@ -439,7 +443,7 @@ public class RequestSubPackets
             writer.Put((ushort)MissingIds.Count);
             if (MissingIds.Count > 0)
             {
-                foreach (int netId in MissingIds)
+                foreach (var netId in MissingIds)
                 {
                     writer.Put(netId);
                 }

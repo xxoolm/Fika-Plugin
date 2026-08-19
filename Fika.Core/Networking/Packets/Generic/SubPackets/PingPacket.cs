@@ -16,7 +16,7 @@ public sealed class PingPacket : IPoolSubPacket
 
     public static PingPacket FromValue(Vector3 location, PingFactory.EPingType type, Color color, string nickname, string localeId = null)
     {
-        PingPacket packet = GenericSubPacketPoolManager.Instance.GetPacket<PingPacket>(EGenericSubPacketType.Ping);
+        var packet = GenericSubPacketPoolManager.Instance.GetPacket<PingPacket>(EGenericSubPacketType.Ping);
         packet.PingLocation = location;
         packet.PingType = type;
         packet.PingColor = color;
@@ -33,7 +33,7 @@ public sealed class PingPacket : IPoolSubPacket
 
     public void Execute(FikaPlayer player = null)
     {
-        if (FikaPlugin.UsePingSystem.Value && !FikaBackendUtils.IsHeadless)
+        if (FikaPlugin.Instance.Settings.UsePingSystem.Value && !FikaBackendUtils.IsHeadless)
         {
             PingFactory.ReceivePing(PingLocation, PingType, PingColor, Nickname, LocaleId);
         }

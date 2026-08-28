@@ -165,6 +165,13 @@ public partial class FreeCamera : MonoBehaviour
         }
 
         _currentPlayer = player;
+
+        if (_currentPlayer == null)
+        {
+            _lastSpectatedIndex = -1;
+            return;
+        }
+
         _lastSpectatedIndex = _players.IndexOf(_currentPlayer);
 
         if (_currentPlayer != null && _playersTracker.TryGetValue(_currentPlayer.NetId, out listPlayer))

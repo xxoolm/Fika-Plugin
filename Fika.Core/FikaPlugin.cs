@@ -358,6 +358,7 @@ public sealed class FikaPlugin : BaseUnityPlugin
         new SendPlayerScavProfileToServerAfterRaidPatch().Disable();
         new MatchStartServerLocationPatch().Disable();
         new QuestAchievementRewardInRaidPatch().Disable();
+        new OverrideMaxAiAliveInRaidValuePatch().Disable();
     }
 
     public enum EPingSound

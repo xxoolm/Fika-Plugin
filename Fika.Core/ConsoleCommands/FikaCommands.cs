@@ -55,7 +55,7 @@ public class FikaCommands
                 if (player.IsAI && player.HealthController.IsAlive)
                 {
                     count++;
-                    player.Teleport(targetPosition.Original.position + targetPosition.Original.forward * 2);
+                    player.Teleport(targetPosition.Original.position + (targetPosition.Original.forward * 2));
                 }
             }
 
@@ -322,7 +322,8 @@ public class FikaCommands
             {
                 if (gameWorld.BtrController != null)
                 {
-                    var btrTransform = Traverse.Create(gameWorld.BtrController.BtrView).Field<Transform>("_cachedTransform").Value;
+                    var btrTransform = Traverse.Create(gameWorld.BtrController.BtrView)
+                        .Field<Transform>("_cachedTransform").Value;
                     if (btrTransform != null)
                     {
                         var myPlayer = gameWorld.MainPlayer;
@@ -486,7 +487,8 @@ public class FikaCommands
     /// <param name="wildSpawnType"></param>
     /// <param name="amount"></param>
     [ConsoleCommand("spawnNPC", description: "Spawn NPC with specified WildSpawnType")]
-    public static void SpawnNPC([ConsoleArgument("assault", "The WildSpawnType to spawn (use help for a list)")] string wildSpawnType, [ConsoleArgument(1, "The amount of AI to spawn")] int amount)
+    public static void SpawnNPC([ConsoleArgument("assault", "The WildSpawnType to spawn (use help for a list)")] string wildSpawnType,
+        [ConsoleArgument(1, "The amount of AI to spawn")] int amount)
     {
         if (string.IsNullOrEmpty(wildSpawnType) || string.Equals(wildSpawnType, "help", StringComparison.OrdinalIgnoreCase))
         {

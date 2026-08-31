@@ -1,12 +1,13 @@
-﻿using BitPacking;
-using EFT.Ballistics;
-using EFT.BufferZone;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using BitPacking;
 using Comfort.Common;
+using Diz.Jobs;
 using EFT;
 using EFT.AssetsManager;
+using EFT.Ballistics;
+using EFT.BufferZone;
 using EFT.Communications;
 using EFT.GlobalEvents;
 using EFT.Interactive;
@@ -29,14 +30,59 @@ using Fika.Core.Networking.Packets.Player;
 using Fika.Core.Networking.Packets.Player.Common;
 using Fika.Core.Networking.Packets.World;
 using HarmonyLib;
-using Grid = EFT.InventoryLogic.Grid;
-using ClientTransitController = Fika.Core.Main.ClientClasses.ClientTransitController;
 using ClientRunddansController = Fika.Core.Main.ClientClasses.ClientRunddansController;
+using ClientTransitController = Fika.Core.Main.ClientClasses.ClientTransitController;
+using Grid = EFT.InventoryLogic.Grid;
 
 namespace Fika.Core.Networking;
 
 public sealed partial class FikaClient
 {
+    private void SpawnItemInInventoryPacketReceived(SpawnItemInInventoryPacket packet)
+    {
+        if (!CoopHandler.Players.TryGetValue(packet.NetId, out var player))
+        {
+            _logger.LogError($"Could not find player with id [{packet.NetId}] when trying to spawn item in inventoy");
+            return;
+        }
+
+        var item = Singleton<ItemFactory>.Instance.CreateItem(packet.ItemId, packet.TemplateId, null);
+        if (item == null)
+        {
+            _logger.LogError($"Failed to create item [{packet.ItemId}] with templateId [{packet.TemplateId}]");
+            return;
+        }
+
+        if (packet.Amount > 1 && item.StackMaxSize > 1)
+        {
+            item.StackObjectsCount = Mathf.Clamp(packet.Amount, 1, item.StackMaxSize);
+        }
+        else
+        {
+            item.StackObjectsCount = 1;
+        }
+
+        var tempMove = TemporaryStash.Grid.AddAnywhere(item, EErrorHandlingType.Ignore);
+        if (tempMove.Failed)
+        {
+            _logger.LogError($"Failed to move item to temporary stash: {tempMove.Error}");
+            return;
+        }
+
+        new ItemController(TemporaryStash, player.InventoryController.ID, "temp item stash", false, EOwnerType.Profile);
+
+        var inventoryController = player.InventoryController;
+        var result = ItemManipulator.Move(item, packet.ItemAddress, inventoryController);
+        if (result.Failed)
+        {
+            _logger.LogError($"Failed to move spawned item: {result.Error}");
+        }
+
+        Singleton<ObjectsFactory>.Instance.LoadBundlesAndCreatePools(ObjectsFactory.PoolsCategory.Raid, ObjectsFactory.AssemblyType.Online,
+            item.Template.AllResources.ToHashSet(), JobYieldPriority.Immediate)
+            .HandleExceptions();
+    }
+
     private void OnProceedResponsePacketReceived(ProceedResponsePacket packet)
     {
         MyPlayer.HandleCallbackResponse(packet.CallbackId, packet.Error);
@@ -153,7 +199,7 @@ public sealed partial class FikaClient
 
     private void OnSyncTrapsPacketReceived(SyncTrapsPacket packet)
     {
-        BitReaderStream reader = new(packet.Data);
+        var reader = new BitReaderStream(packet.Data);
         var gameWorld = Singleton<GameWorld>.Instance;
         if (gameWorld.SyncModule != null)
         {

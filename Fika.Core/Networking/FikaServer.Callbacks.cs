@@ -31,11 +31,57 @@ using System.Collections.Generic;
 using System.Linq;
 using static Fika.Core.Networking.Packets.World.ReconnectPacket;
 using EFT.NetworkPackets;
+using Diz.Jobs;
 
 namespace Fika.Core.Networking;
 
 public sealed partial class FikaServer
 {
+    private void SpawnItemInInventoryPacketReceived(SpawnItemInInventoryPacket packet, NetPeer peer)
+    {
+        if (!CoopHandler.Players.TryGetValue(packet.NetId, out var player))
+        {
+            _logger.LogError($"Could not find player with id [{packet.NetId}] when trying to spawn item in inventoy");
+            return;
+        }
+
+        var item = Singleton<ItemFactory>.Instance.CreateItem(packet.ItemId, packet.TemplateId, null);
+        if (item == null)
+        {
+            _logger.LogError($"Failed to create item [{packet.ItemId}] with templateId [{packet.TemplateId}]");
+            return;
+        }
+
+        if (packet.Amount > 1 && item.StackMaxSize > 1)
+        {
+            item.StackObjectsCount = Mathf.Clamp(packet.Amount, 1, item.StackMaxSize);
+        }
+        else
+        {
+            item.StackObjectsCount = 1;
+        }
+
+        var tempMove = TemporaryStash.Grid.AddAnywhere(item, EErrorHandlingType.Ignore);
+        if (tempMove.Failed)
+        {
+            _logger.LogError($"Failed to move item to temporary stash: {tempMove.Error}");
+            return;
+        }
+
+        new ItemController(TemporaryStash, player.InventoryController.ID, "temp item stash", false, EOwnerType.Profile);
+
+        var inventoryController = player.InventoryController;
+        var result = ItemManipulator.Move(item, packet.ItemAddress, inventoryController);
+        if (result.Failed)
+        {
+            _logger.LogError($"Failed to move spawned item: {result.Error}");
+        }
+
+        Singleton<ObjectsFactory>.Instance.LoadBundlesAndCreatePools(ObjectsFactory.PoolsCategory.Raid, ObjectsFactory.AssemblyType.Online,
+            item.Template.AllResources.ToHashSet(), JobYieldPriority.Immediate)
+            .HandleExceptions();
+    }
+
     private void OnQuestSyncPacketReceived(QuestSyncPacket packet, NetPeer peer)
     {
         if (!CoopHandler.Players.TryGetValue(packet.NetId, out var player))

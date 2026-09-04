@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Fika.Core.Modding.Events;
 
 namespace Fika.Core.Modding;
@@ -21,6 +22,11 @@ public static class FikaEventDispatcher
     public static event FikaEventHandler OnFikaEvent;
 
     /// <summary>
+    /// Maps a composite key of (Callback, EventType) to the generated wrapper delegate for unsubscription matching.
+    /// </summary>
+    private static readonly Dictionary<(Delegate Callback, Type EventType), FikaEventHandler> _delegateMap = [];
+
+    /// <summary>
     /// Dispatches a Fika event to all registered handlers.
     /// </summary>
     /// <typeparam name="TEvent">The type of the event, derived from <see cref="FikaEvent"/>.</typeparam>
@@ -37,13 +43,21 @@ public static class FikaEventDispatcher
     /// <param name="callback">The callback to invoke when the event is dispatched.</param>
     public static void SubscribeEvent<TEvent>(Action<TEvent> callback) where TEvent : FikaEvent
     {
-        OnFikaEvent += e =>
+        if (callback == null)
+        {
+            return;
+        }
+
+        void wrapper(FikaEvent e)
         {
             if (e is TEvent specificEvent)
             {
-                callback?.Invoke(specificEvent);
+                callback(specificEvent);
             }
-        };
+        }
+
+        _delegateMap[(callback, typeof(TEvent))] = wrapper;
+        OnFikaEvent += wrapper;
     }
 
     /// <summary>
@@ -53,12 +67,16 @@ public static class FikaEventDispatcher
     /// <param name="callback">The callback to remove from the event subscription.</param>
     public static void UnsubscribeEvent<TEvent>(Action<TEvent> callback) where TEvent : FikaEvent
     {
-        OnFikaEvent -= e =>
+        if (callback == null)
         {
-            if (e is TEvent specificEvent)
-            {
-                callback?.Invoke(specificEvent);
-            }
-        };
+            return;
+        }
+
+        var key = (callback, typeof(TEvent));
+        if (_delegateMap.TryGetValue(key, out var wrapper))
+        {
+            OnFikaEvent -= wrapper;
+            _delegateMap.Remove(key);
+        }
     }
 }

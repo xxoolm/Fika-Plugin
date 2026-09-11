@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Linq;
 using Comfort.Common;
+using Diz.Jobs;
+using Diz.Utils;
 using EFT;
 using EFT.Console.Core;
 using EFT.HealthSystem;
+using EFT.InventoryLogic;
 using EFT.UI;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.GameMode;
@@ -12,6 +15,7 @@ using Fika.Core.Main.Players;
 using Fika.Core.Main.Utils;
 using Fika.Core.Networking;
 using Fika.Core.Networking.Packets.Debug;
+using Fika.Core.Networking.Packets.Player;
 using HarmonyLib;
 using static Fika.Core.Networking.Packets.Debug.CommandPacket;
 
@@ -51,7 +55,7 @@ public class FikaCommands
                 if (player.IsAI && player.HealthController.IsAlive)
                 {
                     count++;
-                    player.Teleport(targetPosition.Original.position + targetPosition.Original.forward * 2);
+                    player.Teleport(targetPosition.Original.position + (targetPosition.Original.forward * 2));
                 }
             }
 
@@ -318,7 +322,8 @@ public class FikaCommands
             {
                 if (gameWorld.BtrController != null)
                 {
-                    var btrTransform = Traverse.Create(gameWorld.BtrController.BtrView).Field<Transform>("_cachedTransform").Value;
+                    var btrTransform = Traverse.Create(gameWorld.BtrController.BtrView)
+                        .Field<Transform>("_cachedTransform").Value;
                     if (btrTransform != null)
                     {
                         var myPlayer = gameWorld.MainPlayer;
@@ -380,13 +385,110 @@ public class FikaCommands
         Singleton<IFikaNetworkManager>.Instance.SendData(ref packet, DeliveryMethod.ReliableOrdered);
     }
 
+    [ConsoleCommand("spawnItemInInventory", description: "Spawns an item from a templateId in your inventory")]
+    public static void SpawnItemInInventory([ConsoleArgument("", "The templateId to spawn an item from")] string templateId,
+        [ConsoleArgument(1, "The amount to spawn if the item can stack")] int amount = 1)
+    {
+        if (!CheckForGame())
+        {
+            return;
+        }
+
+        var gameWorld = Singleton<GameWorld>.Instance;
+        var player = (FikaPlayer)gameWorld.MainPlayer;
+        if (!player.HealthController.IsAlive)
+        {
+            LogError("You cannot spawn an item while dead!");
+            return;
+        }
+
+        var itemFactory = Singleton<ItemFactory>.Instance;
+        if (itemFactory == null)
+        {
+            LogError("ItemFactory was null!");
+            return;
+        }
+
+        var item = itemFactory.CreateItem(MongoID.Generate(), templateId, null);
+        LogInfo($"Created item {item.LocalizedName()}");
+        if (amount > 1 && item.StackMaxSize > 1)
+        {
+            item.StackObjectsCount = Mathf.Clamp(amount, 1, item.StackMaxSize);
+        }
+        else
+        {
+            item.StackObjectsCount = 1;
+        }
+
+        var stash = Singleton<IFikaNetworkManager>.Instance.TemporaryStash;
+        var grid = stash.Grid;
+        var tempMove = Singleton<IFikaNetworkManager>.Instance.TemporaryStash.Grid.AddItemWithoutRestrictions(item, grid.FindFreeSpace(item));
+        if (tempMove.Failed)
+        {
+            LogError($"Failed to move item to temporary stash: {tempMove.Error}");
+            return;
+        }
+
+        LogInfo($"Item is in {item.Parent.ContainerName}");
+
+        new ItemController(stash, player.InventoryController.ID, "temp item stash", false, EOwnerType.Profile);
+
+        try
+        {
+            var moveResult = ItemManipulator.QuickFindAppropriatePlace(item, player.InventoryController,
+                (player.InventoryController.RootItem as CompoundItem).ToEnumerable(),
+                ItemManipulator.EMoveItemOrder.IgnoreItemParent, true);
+
+            if (moveResult.Failed)
+            {
+                LogError("Failed to spawn item in inventory");
+                return;
+            }
+
+            LogInfo($"Moved to: {moveResult.Value.ResultItem.Parent.ContainerName}");
+
+            player.InventoryController.ConvertOperationResultToOperation(moveResult.Value).Execute(result =>
+            {
+                if (result.Failed)
+                {
+                    LogError($"Operation failed: {result.Error}");
+                }
+                else
+                {
+                    LogInfo($"Moved item to: {item.Parent.ContainerName}");
+                }
+            });
+
+            Singleton<ObjectsFactory>.Instance.LoadBundlesAndCreatePools(ObjectsFactory.PoolsCategory.Raid, ObjectsFactory.AssemblyType.Online,
+                item.Template.AllResources.ToHashSet(), JobYieldPriority.Immediate)
+                .HandleExceptions();
+
+            var packet = new SpawnItemInInventoryPacket
+            {
+                NetId = player.NetId,
+                ItemId = item.Id,
+                TemplateId = templateId,
+                Amount = amount,
+                ItemAddress = item.Parent
+            };
+
+            Singleton<IFikaNetworkManager>.Instance.SendData(ref packet, DeliveryMethod.ReliableOrdered);
+        }
+        catch (Exception ex)
+        {
+            LogError(ex.ToString());
+            throw;
+        }
+    }
+
     /// <summary>
     /// Based on SSH's TarkyMenu command
     /// </summary>
     /// <param name="wildSpawnType"></param>
     /// <param name="amount"></param>
     [ConsoleCommand("spawnNPC", description: "Spawn NPC with specified WildSpawnType")]
-    public static void SpawnNPC([ConsoleArgument("assault", "The WildSpawnType to spawn (use help for a list)")] string wildSpawnType, [ConsoleArgument(1, "The amount of AI to spawn")] int amount)
+    public static void SpawnNPC([ConsoleArgument("assault", "The WildSpawnType to spawn (use help for a list)")] string wildSpawnType,
+        [ConsoleArgument(1, "The amount of AI to spawn")] int amount)
     {
         if (string.IsNullOrEmpty(wildSpawnType) || string.Equals(wildSpawnType, "help", StringComparison.OrdinalIgnoreCase))
         {

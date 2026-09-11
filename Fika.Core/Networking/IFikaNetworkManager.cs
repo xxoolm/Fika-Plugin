@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using EFT;
+using EFT.InventoryLogic;
 using Fika.Core.Main.Components;
 using Fika.Core.Main.Players;
 using Fika.Core.Networking.Packets;
@@ -50,6 +51,11 @@ public interface IFikaNetworkManager
     /// Gets or sets the list of observed players in the session.
     /// </summary>
     List<ObservedPlayer> ObservedPlayers { get; set; }
+
+    /// <summary>
+    /// Temporary stash to spawn items
+    /// </summary>
+    public Stash TemporaryStash { get; set; }
 
     /// <summary>
     /// Gets or sets the total number of players in the session.

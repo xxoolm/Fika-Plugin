@@ -167,7 +167,6 @@ public class CoopHandler : MonoBehaviour
             }
         }
 
-        var areAllDead = deadPlayers >= (AmountOfHumans - 1);
         return deadPlayers >= (AmountOfHumans - 1);
     }
 

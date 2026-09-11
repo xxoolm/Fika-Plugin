@@ -100,6 +100,7 @@ public sealed partial class FikaClient : MonoBehaviour, INetEventListener, IFika
             _coopHandler = value;
         }
     }
+    public Stash TemporaryStash { get; set; }
     public bool StrictInventorySync { get; set; }
     public Queue<EFT.InventoryLogic.Operations.AbstractOperation> InventoryOperations
     {
@@ -162,6 +163,8 @@ public sealed partial class FikaClient : MonoBehaviour, INetEventListener, IFika
         Ping = 0;
         ServerFPS = 0;
         ReadyClients = 0;
+
+        TemporaryStash = Singleton<ItemFactory>.Instance.CreateFakeStash();
 
         NetworkGameSession.Rtt = 0;
         NetworkGameSession.LossPercent = 0;
@@ -282,6 +285,7 @@ public sealed partial class FikaClient : MonoBehaviour, INetEventListener, IFika
         RegisterPacket<SyncEventPacket>(OnSyncEventPacketReceived);
         RegisterPacket<ClearSnapshotterPacket>(OnClearSnapshotterPacketReceived);
         RegisterPacket<ProceedResponsePacket>(OnProceedResponsePacketReceived);
+        RegisterPacket<SpawnItemInInventoryPacket>(SpawnItemInInventoryPacketReceived);
 
         RegisterReusable<WorldPacket>(OnWorldPacketReceived);
 

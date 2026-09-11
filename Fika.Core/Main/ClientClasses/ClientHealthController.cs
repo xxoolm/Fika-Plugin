@@ -56,6 +56,11 @@ public sealed class ClientHealthController(Profile.HealthInfo healthInfo, Player
     {
         if (CoopHandler.TryGetCoopHandler(out var coopHandler))
         {
+            if (coopHandler.AmountOfHumans <= 1)
+            {
+                return false;
+            }
+
             return !coopHandler.AreAllHumanPlayersDead();
         }
 

@@ -111,6 +111,7 @@ public sealed partial class FikaServer : MonoBehaviour, INetEventListener, INatP
             _coopHandler = value;
         }
     }
+    public Stash TemporaryStash { get; set; }
     public bool StrictInventorySync { get; set; }
     /// <summary>
     /// Max MTU used for <see cref="DeliveryMethod.Unreliable"/> batching
@@ -181,6 +182,8 @@ public sealed partial class FikaServer : MonoBehaviour, INetEventListener, INatP
         StrictInventorySync = FikaPlugin.Instance.Settings.StrictInventorySync.Value;
 
         ReadyClients = 0;
+
+        TemporaryStash = Singleton<ItemFactory>.Instance.CreateFakeStash();
 
         MaxMTU = NetConstants.PossibleMtu[0] - NetConstants.HeaderSize; // we assume minimum MTU + unreliable header size
 
@@ -455,6 +458,7 @@ public sealed partial class FikaServer : MonoBehaviour, INetEventListener, INatP
         RegisterPacket<ProceedRequestPacket, NetPeer>(OnProceedRequestPacketReceived);
         RegisterPacket<KnifeHitPacket, NetPeer>(OnKnifeHitPacketReceived);
         RegisterPacket<QuestSyncPacket, NetPeer>(OnQuestSyncPacketReceived);
+        RegisterPacket<SpawnItemInInventoryPacket, NetPeer>(SpawnItemInInventoryPacketReceived);
 
         RegisterReusable<WorldPacket, NetPeer>(OnWorldPacketReceived);
 

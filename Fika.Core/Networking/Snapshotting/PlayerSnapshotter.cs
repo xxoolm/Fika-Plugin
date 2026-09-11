@@ -44,10 +44,10 @@ public sealed class PlayerSnapshotter<T> where T : struct, ISnapshot
         if (_totalAdded > 0)
         {
             var newestIdx = (int)((_totalAdded - 1) & _mask);
-            var newestTime = _buffer[newestIdx].RemoteTime;
+            ref readonly var newestSnap = ref _buffer[newestIdx];
 
             // sequence validation: drop out-of-order or duplicate packets
-            if (snapshot.RemoteTime <= newestTime)
+            if (snapshot.RemoteTime <= newestSnap.RemoteTime)
             {
                 return;
             }
